@@ -17,7 +17,7 @@ OVERPASS_URLS = [
     "https://overpass.private.coffee/api/interpreter",
 ]
 # Overpass rejects generic library User-Agents (HTTP 406), so identify the app.
-HEADERS = {"User-Agent": "AItravelplaner/0.1 (Katowice trip planner)"}
+HEADERS = {"User-Agent": "AItravelplaner/0.1 (trip planner)"}
 
 # Maps OSM tags -> our category + estimated visit duration + avg cost
 CATEGORY_RULES = [
@@ -39,7 +39,24 @@ CATEGORY_RULES = [
     ("amenity", "fast_food",       "food",       "fast_food",   20,  15.0),
     ("amenity", "bar",             "food",       "bar",         60,  30.0),
     ("shop", "mall",               "shopping",   "mall",        90,   0.0),
+    ("natural", "beach",           "nature",     "beach",      120,   0.0),
+    ("leisure", "marina",          "nature",     "marina",      45,   0.0),
+    ("historic", "castle",         "attraction", "castle",      90,  25.0),
+    ("amenity", "place_of_worship", "attraction", "church",     30,   0.0),
+    ("tourism", "zoo",             "family",     "zoo",        180,  40.0),
+    ("tourism", "aquarium",        "family",     "aquarium",   120,  40.0),
+    ("tourism", "theme_park",      "family",     "theme_park", 240, 100.0),
+    ("leisure", "water_park",      "family",     "water_park", 240,  60.0),
 ]
+
+# Tags that are often mapped as large areas (multipolygon relations), e.g. long
+# beaches or big parks — query relations for these too.
+AREA_TAGS = {("natural", "beach"), ("leisure", "park"), ("leisure", "garden"),
+             ("historic", "castle"), ("tourism", "zoo"), ("tourism", "theme_park"),
+             ("leisure", "water_park"), ("leisure", "marina")}
+
+# Very common tags: only fetch notable entries (ones with a Wikidata link).
+NOTABLE_ONLY = {("amenity", "place_of_worship")}
 
 
 def _build_query(bbox: tuple[float, float, float, float]) -> str:
@@ -52,8 +69,10 @@ def _build_query(bbox: tuple[float, float, float, float]) -> str:
         pair = (key, val)
         if pair not in seen:
             seen.add(pair)
-            tag_filters += f'  node["{key}"="{val}"]({bbox});\n'
-            tag_filters += f'  way["{key}"="{val}"]({bbox});\n'
+            extra = '["wikidata"]' if pair in NOTABLE_ONLY else ""
+            types = ("node", "way", "relation") if pair in AREA_TAGS else ("node", "way")
+            for t in types:
+                tag_filters += f'  {t}["{key}"="{val}"]{extra}({bbox});\n'
 
     return f"""
 [out:json][timeout:60];
@@ -77,7 +96,7 @@ def _classify(tags: dict) -> tuple | None:
 def _extract_coords(element: dict) -> tuple[float, float] | None:
     if element["type"] == "node":
         return element.get("lat"), element.get("lon")
-    if element["type"] == "way":
+    if element["type"] in ("way", "relation"):
         center = element.get("center", {})
         return center.get("lat"), center.get("lon")
     return None, None
@@ -98,6 +117,7 @@ def _post_overpass(query: str) -> list[dict]:
 def fetch_and_parse(bbox: tuple[float, float, float, float]) -> list[dict]:
     """bbox = (lat_min, lon_min, lat_max, lon_max)"""
     query = _build_query(bbox)
+    # (relations need "out center" too — already requested by the query)
     elements = _post_overpass(query)
 
     places = []

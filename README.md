@@ -47,21 +47,21 @@ Your browser opens at http://localhost:8501.
    any city name to download its places (~30 s the first time; cached afterwards).
    **🔄 Refresh** re-downloads the current city, **🗑️ Remove** deletes it locally.
 2. Pick the trip dates (up to 11 days), the daily hours, the **pace**
-   (🐢 Relaxed 3–4 stops/day · 🚶 Balanced 4–6 · 🏃 Packed 6–8), the **budget per person for
-   the whole trip** in the city's currency, and interests, then press **✨ Plan my trip**.
+   (Relaxed 3–4 stops a day · Balanced 4–6 · Packed 6–8), the **budget per person for
+   the whole trip** in the city's currency, and interests, then press **Plan trip**.
    Claude plans every day in one go (~30–40 s for 3 days), using the **weather forecast**
    (Open-Meteo, for days up to ~16 days ahead) — rainy/cold days get more indoor stops.
 
 You get:
 
 - a header with city, dates, pace and total cost vs budget, plus trip-wide warnings,
-- a **day strip** — one button per day with ✅/⚠️ and the forecast; click to open a day,
+- a **day selector** — one tab per day with the forecast (* marks a day with something to check),
 - for the selected day: a **large map with numbered pins** (left) and a **timeline**
   (right) with times, prices, walking/transit time between stops and reasons,
-- **⇄ swap** on every stop: pick one of ~4 nearby places of the same kind that are open
+- **Swap** on every stop: pick one of ~4 nearby places of the same kind that are open
   at that time and not used elsewhere in the trip (instant, no AI call),
-- **🗺️ Open this day in Google Maps** — all stops pinned as a walking route,
-- **📄 PDF guide** — cover page plus one page per day with a route map and details.
+- **Open in Google Maps** — all of the day's stops pinned as a walking route,
+- **PDF guide** — cover page plus one page per day with a route map and details.
 
 Stop the server with `Ctrl+C`.
 
@@ -107,6 +107,10 @@ tests/                  Test queries and evaluation harness
 
 - **Prices:** the currency comes from the city's country. Claude estimates each stop's
   price per person from its knowledge of local prices — treat them as estimates.
+- **Place types** downloaded: museums, galleries, landmarks, viewpoints, monuments,
+  castles, notable churches, parks, gardens, beaches, marinas, zoos, aquariums, theme
+  and water parks, theatres, cinemas, restaurants, cafés, bars and malls. Cities
+  downloaded before a new type was added need **Refresh** to pick it up.
 - **City search** is typo-tolerant (Photon, OpenStreetMap-based): "krakw" finds Kraków.
 - **Travel time:** gaps up to 15 minutes shorter than the estimated travel time are
   not reported (straight-line distances are rough). Tunable in `config.py`

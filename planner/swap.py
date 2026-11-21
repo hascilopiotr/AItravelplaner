@@ -16,7 +16,7 @@ MAX_SWAP_KM = 1.5
 
 # Places are interchangeable within these groups.
 _GROUPS = {"food": "food", "attraction": "sights", "culture": "sights",
-           "nature": "nature", "shopping": "shopping"}
+           "nature": "nature", "shopping": "shopping", "family": "family"}
 
 
 def _group(place: dict) -> str:

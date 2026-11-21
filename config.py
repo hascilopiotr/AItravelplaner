@@ -22,10 +22,11 @@ INTEREST_SUBCATEGORIES = {
     "museums": ["museum"],
     "galleries": ["gallery", "arts"],
     "monuments": ["monument", "memorial"],
-    "history": ["historic", "monument", "memorial", "museum"],
-    "architecture": ["landmark", "historic"],
+    "history": ["historic", "monument", "memorial", "museum", "castle", "church"],
+    "architecture": ["landmark", "historic", "castle", "church"],
+    "beaches": ["beach", "marina"],
     "parks": ["park", "garden"],
-    "nature": ["park", "garden", "viewpoint"],
+    "nature": ["park", "garden", "viewpoint", "beach"],
     "cafes": ["cafe"],
     "restaurants": ["restaurant"],
     "bars": ["bar"],
@@ -33,16 +34,17 @@ INTEREST_SUBCATEGORIES = {
     "shopping": ["mall"],
     "theatre": ["theatre", "arts"],
     "cinema": ["cinema"],
+    "family": ["zoo", "aquarium", "theme_park", "water_park"],
 }
 INTERESTS_OPTIONS = list(INTEREST_SUBCATEGORIES)
 
 # Trip pace presets: stops per day, minimum buffer (minutes) on top of travel time.
 PACES = {
-    "relaxed": {"label": "🐢 Relaxed", "stops": (3, 4), "buffer": 20,
+    "relaxed": {"label": "Relaxed", "stops": (3, 4), "buffer": 20,
                 "note": "plenty of free time, a long unhurried lunch, no rushing"},
-    "balanced": {"label": "🚶 Balanced", "stops": (4, 6), "buffer": 10,
+    "balanced": {"label": "Balanced", "stops": (4, 6), "buffer": 10,
                  "note": "a comfortable mix of sightseeing and breaks"},
-    "packed": {"label": "🏃 Packed", "stops": (6, 8), "buffer": 5,
+    "packed": {"label": "Packed", "stops": (6, 8), "buffer": 5,
                "note": "see as much as possible, short breaks"},
 }
 DEFAULT_PACE = "balanced"

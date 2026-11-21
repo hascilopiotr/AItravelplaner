@@ -20,7 +20,7 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FONT = os.path.join(_ROOT, "assets", "fonts", "DejaVuSans.ttf")
 FONT_BOLD = os.path.join(_ROOT, "assets", "fonts", "DejaVuSans-Bold.ttf")
 
-ACCENT = (231, 76, 60)
+ACCENT = (138, 44, 28)
 GREY = (110, 110, 110)
 
 
@@ -40,10 +40,10 @@ def route_map_png(points: list[tuple[float, float]], width: int = 1000, height: 
         lonlat = [(lon, lat) for lat, lon in points]
         if len(lonlat) > 1:
             m.add_line(Line(lonlat, "#ffffff", 7))
-            m.add_line(Line(lonlat, "#e74c3c", 4))
+            m.add_line(Line(lonlat, "#8a2c1c", 4))
         for p in lonlat:
             m.add_marker(CircleMarker(p, "#ffffff", 30))
-            m.add_marker(CircleMarker(p, "#e74c3c", 24))
+            m.add_marker(CircleMarker(p, "#8a2c1c", 24))
         img = m.render(zoom=min(m._calculate_zoom(), 16) if len(lonlat) > 1 else 15)
 
         draw = ImageDraw.Draw(img)
@@ -109,7 +109,6 @@ def build_trip_pdf(result: dict, city_label: str) -> bytes:
     pdf.body(city_label, color=GREY)
     pdf.ln(6)
     pace = PACES.get(prefs.get("pace"), {}).get("label", prefs.get("pace", ""))
-    pace = pace.split(" ", 1)[-1]  # drop the emoji
     for k, v in [("Daily hours", f"{prefs['start_time']}–{prefs['end_time']}"),
                  ("Pace", pace),
                  ("Interests", ", ".join(prefs.get("interests", []))),

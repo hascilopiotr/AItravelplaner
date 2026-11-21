@@ -37,12 +37,12 @@ def money(x: float, cur: str) -> str:
 
 
 def travel_leg(a: dict, b: dict) -> str | None:
-    """'🚶 6 min · 0.4 km' / '🚋 14 min · 3.1 km' between two places (None if unknown)."""
+    """'6 min walk · 0.4 km' / '14 min by tram or bus · 3.1 km' (None if unknown)."""
     if not a or not b or a.get("lat") is None or b.get("lat") is None:
         return None
     km = _haversine_km(a["lat"], a["lon"], b["lat"], b["lon"])
-    icon = "🚶" if km < WALK_MAX_KM else "🚋"
-    return f"{icon} {max(_travel_minutes(km), 1)} min · {km:.1f} km"
+    how = "walk" if km < WALK_MAX_KM else "by public transport"
+    return f"{max(_travel_minutes(km), 1)} min {how} · {km:.1f} km"
 
 
 def google_maps_url(places: list[dict], walking: bool = True) -> str | None:

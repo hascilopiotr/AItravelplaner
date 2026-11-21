@@ -14,7 +14,7 @@ from data.db import delete_city, list_cities
 from planner.pipeline import MAX_TRIP_DAYS
 from ui.format import default_budget, short_name
 
-NEW_CITY = "➕ Add another city…"
+NEW_CITY = "Add another city…"
 
 
 def _select_loaded(record: dict):
@@ -24,7 +24,7 @@ def _select_loaded(record: dict):
 
 
 def _run_download(label: str, fn, *args) -> bool:
-    with st.spinner(f"Downloading places for {label} from OpenStreetMap (~30 s)..."):
+    with st.spinner(f"Downloading places for {label} — about half a minute…"):
         try:
             record = fn(*args)
         except CityNotFound as e:
@@ -50,7 +50,7 @@ def city_section() -> dict:
     if st.session_state.get("city") not in by_key:
         st.session_state["city"] = cities[0]["name"]
 
-    st.markdown("### 📍 City")
+    st.markdown("<p class='side-label'>City</p>", unsafe_allow_html=True)
     keys = list(by_key)
     choice = st.selectbox(
         "City", keys + [NEW_CITY], index=keys.index(st.session_state["city"]),
@@ -59,8 +59,8 @@ def city_section() -> dict:
     )
     if choice == NEW_CITY:
         with st.form("city_search"):
-            query = st.text_input("Search for a city", placeholder="e.g. Kraków, Wroclaw, Prague")
-            searched = st.form_submit_button("🔍 Search", use_container_width=True)
+            query = st.text_input("Search for a city", placeholder="Kraków, Lisbon, Prague…")
+            searched = st.form_submit_button("Search", use_container_width=True)
         if searched and query.strip():
             try:
                 st.session_state["city_matches"] = search_cities(query)
@@ -72,19 +72,19 @@ def city_section() -> dict:
         matches = st.session_state.get("city_matches")
         if matches is not None:
             if not matches:
-                st.warning(f"No city found for '{st.session_state.get('city_query', '')}'. "
-                           "Check the spelling or try the English/local name.")
+                st.warning(f"Nothing found for “{st.session_state.get('city_query', '')}”. "
+                           "Try the local or English name.")
             else:
-                idx = st.radio("Did you mean:", range(len(matches)),
+                idx = st.radio("Matches", range(len(matches)),
                                format_func=lambda i: matches[i]["label"])
                 picked = matches[idx]
                 cached = by_key.get(picked["name"].strip().lower())
                 if cached:
-                    if st.button(f"Use {picked['name']} (already downloaded)", type="primary",
+                    if st.button(f"Use {picked['name']}", type="primary",
                                  use_container_width=True):
                         _select_loaded(cached)
                         st.rerun()
-                elif st.button(f"⬇️ Download {picked['name']}", type="primary", use_container_width=True):
+                elif st.button(f"Download {picked['name']}", type="primary", use_container_width=True):
                     if _run_download(picked["name"], download_city, picked):
                         st.rerun()
         st.stop()
@@ -93,13 +93,12 @@ def city_section() -> dict:
         st.session_state.pop("result", None)
 
     city = by_key[st.session_state["city"]]
-    st.caption(f"{city['display_name']}  \n{city['n_places']} places · "
-               f"updated {city['fetched_at'][:10]}")
+    st.caption(f"{city['n_places']:,} places · updated {city['fetched_at'][:10]}")
     c1, c2 = st.columns(2)
-    if c1.button("🔄 Refresh", use_container_width=True, help="Re-download places from OpenStreetMap"):
+    if c1.button("Refresh", type="tertiary", help="Re-download places from OpenStreetMap"):
         if _run_download(short_name(city), refresh_city, city["name"]):
             st.rerun()
-    if c2.button("🗑️ Remove", use_container_width=True, disabled=len(by_key) < 2,
+    if c2.button("Remove", type="tertiary", disabled=len(by_key) < 2,
                  help="Delete this city's places from the local database"):
         delete_city(city["name"])
         st.session_state.pop("city", None)
@@ -120,11 +119,11 @@ def _trip_dates(rng) -> list[date]:
 def trip_form(city: dict) -> dict | None:
     """Render the trip form; returns validated prefs when submitted, else None."""
     currency = city_currency(city)
-    st.markdown("### 🧳 Your trip")
+    st.markdown("<p class='side-label'>Trip</p>", unsafe_allow_html=True)
     with st.form("prefs_form"):
         tomorrow = date.today() + timedelta(days=1)
         date_range = st.date_input(
-            f"Dates (up to {MAX_TRIP_DAYS} days)", value=(tomorrow, tomorrow + timedelta(days=2)),
+            f"Dates — up to {MAX_TRIP_DAYS} days", value=(tomorrow, tomorrow + timedelta(days=2)),
             min_value=date.today(), help="Pick the first and last day of the trip.",
         )
         c1, c2 = st.columns(2)
@@ -133,15 +132,15 @@ def trip_form(city: dict) -> dict | None:
         pace = st.radio(
             "Pace", list(PACES), index=list(PACES).index(DEFAULT_PACE), horizontal=True,
             format_func=lambda k: PACES[k]["label"],
-            help=" · ".join(f"{p['label']}: {p['stops'][0]}–{p['stops'][1]} stops/day, "
-                            f"{p['buffer']}+ min breaks" for p in PACES.values()),
+            help="  \n".join(f"{p['label']}: {p['stops'][0]}–{p['stops'][1]} stops a day, "
+                              f"at least {p['buffer']} min between them" for p in PACES.values()),
         )
         b_default, b_step = default_budget(currency)
         budget = st.number_input(f"Budget per person, whole trip ({currency})", min_value=0.0,
                                  value=b_default, step=b_step, format="%.0f")
-        interests = st.multiselect("Interests", INTERESTS_OPTIONS, default=["museums", "food", "parks"])
-        notes = st.text_area("Notes (optional)", placeholder="e.g. travelling with kids, vegetarian, no stairs")
-        submitted = st.form_submit_button("✨ Plan my trip", type="primary", use_container_width=True)
+        interests = st.multiselect("Interested in", INTERESTS_OPTIONS, default=["museums", "food", "parks"])
+        notes = st.text_area("Anything else?", placeholder="Travelling with kids, vegetarian, no stairs…")
+        submitted = st.form_submit_button("Plan trip", type="primary", use_container_width=True)
 
     if not submitted:
         return None
