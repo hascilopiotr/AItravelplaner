@@ -84,6 +84,16 @@ tests/                  Test queries and evaluation harness
 - Upgrading from the Katowice-only version: the old `data/katowice.db` is no longer
   used; places now live in `data/places.db`.
 
+## API key security
+
+- The key lives only in `.env`, which is gitignored (never committed) and readable
+  only by your user (`chmod 600 .env`).
+- `.streamlit/config.toml` binds the app to `localhost`, so other devices on your
+  network can't open it and spend your API credit. If you ever deploy it publicly,
+  add authentication and an Anthropic spend limit first.
+- If the key is ever exposed, revoke it at https://console.anthropic.com/settings/keys
+  and put a new one in `.env`.
+
 ## Troubleshooting
 
 - **`SSLV3_ALERT_HANDSHAKE_FAILURE`** when seeding — your venv uses macOS's Python 3.9.

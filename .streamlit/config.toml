@@ -1,0 +1,5 @@
+[server]
+# Only accept connections from this computer. Without this Streamlit listens on
+# all network interfaces, so anyone on the same Wi-Fi could use the app (and
+# spend API credit on your Anthropic key).
+address = "localhost"
