@@ -44,12 +44,12 @@ def _stops_from_plan(plan: dict, visit_date: str) -> list[ScheduledStop]:
     stops = []
     d = date.fromisoformat(visit_date)
 
+    def parse_dt(t: str) -> datetime:
+        h, m = t.split(":")
+        return datetime(d.year, d.month, d.day, int(h), int(m))
+
     for s in plan.get("stops", []):
         db_place = get_place_by_id(s["place_id"])
-
-        def parse_dt(t: str) -> datetime:
-            h, m = t.split(":")
-            return datetime(d.year, d.month, d.day, int(h), int(m))
 
         stops.append(ScheduledStop(
             place_id=s["place_id"],

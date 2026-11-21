@@ -11,7 +11,7 @@ from rich.panel import Panel
 from rich.json import JSON
 
 from planner.pipeline import run
-from data.db import count_places
+from data.db import init_db, count_places
 
 console = Console()
 
@@ -26,7 +26,11 @@ DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sun
 
 def ask_preferences() -> dict:
     console.print(Panel("[bold cyan]AI Travel Planner — Katowice[/]", expand=False))
-    console.print(f"Database has [bold]{count_places()}[/] places loaded.\n")
+    init_db()
+    n = count_places()
+    console.print(f"Database has [bold]{n}[/] places loaded.\n")
+    if n == 0:
+        console.print("[yellow]Warning: database is empty. Run 'python -m data.seed' first.[/]\n")
 
     budget = IntPrompt.ask("Your budget (PLN)", default=150)
     start_time = Prompt.ask("Start time (HH:MM)", default="10:00")

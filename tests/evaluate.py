@@ -14,7 +14,7 @@ import sys
 import json
 import argparse
 import os
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from tests.queries import TEST_QUERIES
 from planner.pipeline import run

@@ -5,7 +5,7 @@ Usage: python -m data.seed
 
 import sys
 import os
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from data.db import init_db, upsert_place, count_places
 from data.osm_fetcher import fetch_and_parse

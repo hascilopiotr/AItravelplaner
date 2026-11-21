@@ -42,4 +42,7 @@ def generate_plan(prefs: dict, places: list[dict]) -> dict:
         raw = raw.split("```")[1]
         if raw.startswith("json"):
             raw = raw[4:]
-    return json.loads(raw)
+    try:
+        return json.loads(raw.strip())
+    except json.JSONDecodeError as e:
+        raise ValueError(f"LLM returned invalid JSON: {e}\nRaw output:\n{raw[:300]}") from e

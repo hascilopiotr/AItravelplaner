@@ -7,6 +7,8 @@ Handles the most common formats:
   24/7
 """
 
+from __future__ import annotations
+
 from datetime import time, datetime
 
 DAY_MAP = {
@@ -26,7 +28,9 @@ def _expand_days(day_expr: str) -> list[int]:
         start, end = day_expr.split("-")
         s, e = DAY_MAP[start.strip()], DAY_MAP[end.strip()]
         return list(range(s, e + 1))
-    return [DAY_MAP[day_expr]] if day_expr in DAY_MAP else []
+    if day_expr not in DAY_MAP:
+        raise KeyError(day_expr)  # e.g. 'PH' -> caller treats as unknown
+    return [DAY_MAP[day_expr]]
 
 
 def is_open(opening_hours: str | None, dt: datetime) -> bool | None:

@@ -3,6 +3,8 @@ Fetches attractions, restaurants, and leisure spots for Katowice
 from the Overpass API and stores them in SQLite.
 """
 
+from __future__ import annotations
+
 import requests
 import json
 import hashlib
