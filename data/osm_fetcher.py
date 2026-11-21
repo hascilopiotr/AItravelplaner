@@ -10,7 +10,15 @@ import json
 import hashlib
 from config import CITY_BBOX
 
-OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+# Public Overpass endpoints, tried in order. The main server frequently
+# returns 502/504 when at capacity, so fall back to mirrors.
+OVERPASS_URLS = [
+    "https://overpass-api.de/api/interpreter",
+    "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+    "https://overpass.private.coffee/api/interpreter",
+]
+# Overpass rejects generic library User-Agents (HTTP 406), so identify the app.
+HEADERS = {"User-Agent": "AItravelplaner/0.1 (Katowice trip planner)"}
 
 # Maps OSM tags -> our category + estimated visit duration + avg cost
 CATEGORY_RULES = [
@@ -76,11 +84,21 @@ def _extract_coords(element: dict) -> tuple[float, float] | None:
     return None, None
 
 
+def _post_overpass(query: str) -> list[dict]:
+    errors = []
+    for url in OVERPASS_URLS:
+        try:
+            resp = requests.post(url, data={"data": query}, headers=HEADERS, timeout=120)
+            resp.raise_for_status()
+            return resp.json().get("elements", [])
+        except (requests.RequestException, ValueError) as e:
+            errors.append(f"{url}: {e}")
+    raise RuntimeError("All Overpass endpoints failed:\n  " + "\n  ".join(errors))
+
+
 def fetch_and_parse() -> list[dict]:
     query = _build_query()
-    resp = requests.post(OVERPASS_URL, data={"data": query}, timeout=90)
-    resp.raise_for_status()
-    elements = resp.json().get("elements", [])
+    elements = _post_overpass(query)
 
     places = []
     for el in elements:
