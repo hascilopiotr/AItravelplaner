@@ -10,4 +10,3 @@ babel>=2.14
 fpdf2>=2.7
 staticmap>=0.5
 folium>=0.17
-streamlit-folium>=0.22

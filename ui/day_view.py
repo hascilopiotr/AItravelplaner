@@ -8,7 +8,7 @@ from html import escape
 import folium
 import streamlit as st
 from folium.plugins import BeautifyIcon
-from streamlit_folium import st_folium
+import streamlit.components.v1 as components
 
 from data.db import get_all_places, get_place_by_id
 from data.weather import weather_text
@@ -30,7 +30,10 @@ def _pin_map(stops: list[dict], places: list[dict], cur: str) -> folium.Map | No
     lats = [p["lat"] for _, p in pts]
     lons = [p["lon"] for _, p in pts]
     m = folium.Map(location=[sum(lats) / len(lats), sum(lons) / len(lons)], zoom_start=14,
-                   tiles="OpenStreetMap", control_scale=True)
+                   tiles="OpenStreetMap", control_scale=True,
+                   # Let the mouse wheel scroll the page instead of zooming the map
+                   # (zoom with +/-, double-click or pinch).
+                   scrollWheelZoom=False)
     if len(pts) > 1:
         folium.PolyLine([(p["lat"], p["lon"]) for _, p in pts], color=PIN, weight=4,
                         opacity=0.8, dash_array="8 6").add_to(m)
@@ -109,8 +112,10 @@ def render_day(result: dict, day: dict, cur: str):
         if m is None:
             st.caption("No coordinates available for these stops.")
         else:
-            st_folium(m, height=600, use_container_width=True, returned_objects=[],
-                      key=f"map_{day['date']}_{len(stops)}_{stops[0].get('place_id')}")
+            # Plain HTML embed: a fixed-height iframe that never talks back to Streamlit,
+            # so it can't trigger reruns or resize loops that make the page jump.
+            components.html(m.get_root().render(), height=600)
+            st.caption("Zoom with + / −, double-click or pinch · click a pin for details")
         url = google_maps_url(places)
         if url:
             st.link_button("🗺️ Open this day in Google Maps", url, use_container_width=True)
