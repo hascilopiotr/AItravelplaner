@@ -10,6 +10,31 @@ from planner.prompts import SYSTEM_PROMPT, build_user_prompt
 
 _client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
+PLAN_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "plan_summary": {"type": "string"},
+        "stops": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "place_id": {"type": "string"},
+                    "name": {"type": "string"},
+                    "arrival": {"type": "string", "description": "HH:MM, 24h"},
+                    "departure": {"type": "string", "description": "HH:MM, 24h"},
+                    "cost_pln": {"type": "number"},
+                    "reason": {"type": "string"},
+                },
+                "required": ["place_id", "name", "arrival", "departure", "cost_pln", "reason"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["plan_summary", "stops"],
+    "additionalProperties": False,
+}
+
 
 def generate_plan(prefs: dict, places: list[dict]) -> dict:
     slim_places = [
@@ -31,18 +56,21 @@ def generate_plan(prefs: dict, places: list[dict]) -> dict:
 
     message = _client.messages.create(
         model=MODEL,
-        max_tokens=4096,
+        max_tokens=16000,
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": user_msg}],
+        # Structured outputs: the API guarantees the reply is JSON matching
+        # PLAN_SCHEMA, so the model can't wrap it in prose or markdown.
+        output_config={"format": {"type": "json_schema", "schema": PLAN_SCHEMA}},
     )
 
-    raw = message.content[0].text.strip()
-    # Strip accidental markdown fences
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
+    if message.stop_reason == "refusal":
+        raise ValueError("The model declined to produce a plan for this request.")
+    if message.stop_reason == "max_tokens":
+        raise ValueError("The plan was cut off (max_tokens reached). Try a shorter day or fewer interests.")
+
+    raw = next((b.text for b in message.content if b.type == "text"), "")
     try:
-        return json.loads(raw.strip())
+        return json.loads(raw)
     except json.JSONDecodeError as e:
         raise ValueError(f"LLM returned invalid JSON: {e}\nRaw output:\n{raw[:300]}") from e
