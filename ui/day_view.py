@@ -12,9 +12,12 @@ from folium.plugins import BeautifyIcon
 from data.db import get_all_places, get_place_by_id
 from data.weather import weather_text
 from planner.swap import apply_swap, swap_options
+from ui.components import (
+    day_header, html, timetable_head, timetable_leg, timetable_stop, timetable_time,
+)
 from ui.format import google_maps_url, money, travel_leg
 
-ACCENT = "#8a2c1c"
+ACCENT = "#0F4C5C"
 
 
 def _safe(text) -> str:
@@ -43,14 +46,14 @@ def _pin_map(stops: list[dict], places: list[dict], cur: str) -> folium.Map | No
         folium.PolyLine([(p["lat"], p["lon"]) for _, p in pts], color=ACCENT, weight=3,
                         opacity=0.75, dash_array="2 7", line_cap="round").add_to(m)
     for i, (s, p) in enumerate(pts, 1):
-        popup = (f"<div style='font-family:Inter,sans-serif'><b>{_safe(s.get('name', ''))}</b><br>"
+        popup = (f"<div style=\"font-family:'IBM Plex Sans',sans-serif\"><b>{_safe(s.get('name', ''))}</b><br>"
                  f"{_safe(s.get('arrival', ''))}–{_safe(s.get('departure', ''))}"
                  f" · {_safe(money(float(s.get('cost', 0) or 0), cur))}</div>")
         folium.Marker(
             (p["lat"], p["lon"]),
             icon=BeautifyIcon(icon_shape="marker", number=i, border_color=ACCENT,
                               background_color=ACCENT, text_color="#fff",
-                              inner_icon_style="font-family:Inter,sans-serif;font-weight:600"),
+                              inner_icon_style="font-family:'IBM Plex Mono',monospace;font-weight:600"),
             tooltip=f"{i}. {_safe(s.get('name', ''))}",
             popup=folium.Popup(popup, max_width=260),
         ).add_to(m)
@@ -62,23 +65,23 @@ def _pin_map(stops: list[dict], places: list[dict], cur: str) -> folium.Map | No
 def _issues(v: dict) -> list[str]:
     out = list(v["hours_violations"])
     out += [f"Tight connection: {x}" for x in v["travel_violations"]]
-    out += [f"Not in the place database: {x}" for x in v["unknown_places"]]
+    out += [f"Couldn't verify this place: {x}" for x in v["unknown_places"]]
     return out
 
 
 def _swap_popover(result: dict, city_key: str, day_iso: str, idx: int):
-    with st.popover("Swap", type="tertiary", help="Replace with something nearby"):
+    with st.popover("Swap", type="tertiary", help="See similar places nearby"):
         options = swap_options(city_key, result, day_iso, idx, places=_city_places(city_key))
         if not options:
-            st.caption("Nothing similar nearby is open at this time.")
+            st.caption("Nothing similar within 1.5 km is open then.")
             return
         pick = st.radio(
-            "Replace with", range(len(options)), key=f"swap_pick_{day_iso}_{idx}",
+            "Nearby alternatives", range(len(options)), key=f"swap_pick_{day_iso}_{idx}",
             format_func=lambda i: (f"{options[i]['name']} — {options[i]['subcategory'].replace('_', ' ')}, "
                                    f"{options[i]['distance_km']:.1f} km"
-                                   + ("" if options[i]["open_status"] else " (hours unknown)")),
+                                   + ("" if options[i]["open_status"] else " · hours not listed")),
         )
-        if st.button("Replace", key=f"swap_go_{day_iso}_{idx}", type="primary"):
+        if st.button("Use this instead", key=f"swap_go_{day_iso}_{idx}", type="primary"):
             st.session_state["result"] = apply_swap(result, day_iso, idx, options[pick])
             st.session_state.pop("pdf", None)
             st.rerun()
@@ -90,21 +93,22 @@ def render_day(result: dict, day: dict, cur: str):
     places = [get_place_by_id(city_key, s.get("place_id", "")) or {} for s in stops]
     v = day["validation"]
     d = date.fromisoformat(day["date"])
-
-    st.markdown(
-        f"<div class='day-head'><h2>{day['day_of_week']}, {d.strftime('%-d %B')}</h2>"
-        f"<div class='day-weather'>{escape(weather_text(day.get('weather'), emoji=False))}</div></div>"
-        + (f"<p class='day-summary'>{escape(day['plan']['summary'])}</p>" if day["plan"].get("summary") else ""),
-        unsafe_allow_html=True)
-
     issues = _issues(v)
+
+    html(day_header(
+        title=f"{day['day_of_week']} {d.strftime('%-d %B')}",
+        weather=weather_text(day.get("weather"), emoji=False),
+        status=f"{len(issues)} to check" if issues else "Cleared",
+        ok=not issues,
+        summary=day["plan"].get("summary"),
+    ))
     if issues:
-        with st.expander(f"{len(issues)} thing{'s' if len(issues) > 1 else ''} to check"):
+        with st.expander("What to check"):
             for x in issues:
                 st.markdown(f"- {x}")
 
     if not stops:
-        st.warning("No stops were planned for this day.")
+        st.warning("No stops came back for this day.")
         return
 
     map_col, list_col = st.columns([3, 2], gap="large")
@@ -119,30 +123,27 @@ def render_day(result: dict, day: dict, cur: str):
             st.iframe(m.get_root().render(), height=580)
         url = google_maps_url(places)
         if url:
-            st.link_button("Open in Google Maps", url, type="tertiary")
+            st.link_button("Open route in Google Maps", url, type="tertiary")
 
     with list_col:
-        st.markdown(f"<div class='tl-total'>{len(stops)} stops · {escape(money(v['total_cost'], cur))}</div>",
-                    unsafe_allow_html=True)
+        html(timetable_head(f"{len(stops)} stops · {money(v['total_cost'], cur)}"))
         for i, (s, p) in enumerate(zip(stops, places)):
             if i > 0:
                 leg = travel_leg(places[i - 1], p)
                 if leg:
-                    st.markdown(f"<div class='tl-leg'>{escape(leg)}</div>", unsafe_allow_html=True)
-            c_time, c_body, c_swap = st.columns([1.1, 5, 1.2], vertical_alignment="top")
+                    html(timetable_leg(leg))
+            c_time, c_body, c_swap = st.columns([1.1, 5, 1], vertical_alignment="top")
             with c_time:
-                st.markdown(f"<div class='tl-time'>{escape(s.get('arrival', ''))}"
-                            f"<span>{escape(s.get('departure', ''))}</span></div>", unsafe_allow_html=True)
+                html(timetable_time(s.get("arrival", ""), s.get("departure", "")))
             with c_body:
-                kind = (p.get("subcategory") or "").replace("_", " ")
-                meta = " · ".join(x for x in (kind.capitalize(), p.get("address"),
-                                              money(float(s.get("cost", 0) or 0), cur)) if x)
-                hours = f"<div class='tl-hours'>Open {escape(p['opening_hours'])}</div>" \
-                    if p.get("opening_hours") else ""
-                st.markdown(
-                    f"<div class='tl-name'><span class='tl-num'>{i + 1}</span>{escape(s.get('name', '?'))}</div>"
-                    f"<div class='tl-meta'>{escape(meta)}</div>"
-                    f"<div class='tl-reason'>{escape(s.get('reason', ''))}</div>{hours}",
-                    unsafe_allow_html=True)
+                kind = (p.get("subcategory") or "").replace("_", " ").capitalize()
+                html(timetable_stop(
+                    n=i + 1, name=s.get("name", "?"),
+                    price=money(float(s.get("cost", 0) or 0), cur),
+                    meta=" · ".join(x for x in (kind, p.get("address")) if x),
+                    reason=s.get("reason", ""),
+                    hours=p.get("opening_hours"),
+                ))
             with c_swap:
                 _swap_popover(result, city_key, day["date"], i)
+        html("<div class='tt-end'></div>")

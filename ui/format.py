@@ -41,8 +41,8 @@ def travel_leg(a: dict, b: dict) -> str | None:
     if not a or not b or a.get("lat") is None or b.get("lat") is None:
         return None
     km = _haversine_km(a["lat"], a["lon"], b["lat"], b["lon"])
-    how = "walk" if km < WALK_MAX_KM else "by public transport"
-    return f"{max(_travel_minutes(km), 1)} min {how} · {km:.1f} km"
+    how = "walk" if km < WALK_MAX_KM else "tram / bus"
+    return f"{max(_travel_minutes(km), 1):02d} min {how} · {km:.1f} km"
 
 
 def google_maps_url(places: list[dict], walking: bool = True) -> str | None:

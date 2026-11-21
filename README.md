@@ -43,9 +43,9 @@ streamlit run app.py
 
 Your browser opens at http://localhost:8501.
 
-1. **Pick a city** at the top of the sidebar. Choose **Add another city…** and type
+1. **Pick a city** at the top of the sidebar. Choose **New destination…** and type
    any city name to download its places (~30 s the first time; cached afterwards).
-   **Refresh** re-downloads the current city, **Remove** deletes it locally.
+   **Update data** re-downloads the current city, **Remove** deletes it locally.
 2. Pick the trip dates (up to 11 days), the daily hours, the **pace**
    (Relaxed 3–4 stops a day · Balanced 4–6 · Packed 6–8), the **budget per person for
    the whole trip** in the city's currency, and interests, then press **Plan trip**.
@@ -55,13 +55,13 @@ Your browser opens at http://localhost:8501.
 You get:
 
 - a header with city, dates, pace and total cost vs budget, plus trip-wide warnings,
-- a **day selector** — one tab per day with the forecast (* marks a day with something to check),
+- a **day selector** — one tab per day with the forecast ("check" marks a day with something to verify),
 - for the selected day: a **large map with numbered pins** (left) and a **timeline**
   (right) with times, prices, walking/transit time between stops and reasons,
 - **Swap** on every stop: pick one of ~4 nearby places of the same kind that are open
   at that time and not used elsewhere in the trip (instant, no AI call),
-- **Open in Google Maps** — all of the day's stops pinned as a walking route,
-- **PDF guide** — cover page plus one page per day with a route map and details.
+- **Open route in Google Maps** — all of the day's stops pinned as a walking route,
+- **Prepare printable guide** — a PDF with an overview page plus one page per day with a route map.
 
 Stop the server with `Ctrl+C`.
 
@@ -93,6 +93,7 @@ Restart Streamlit after editing.
 
 ```
 app.py                  Streamlit entry point
+ui/styles.css           All custom styling (petrol-teal theme; colours/fonts in .streamlit/config.toml)
 ui/                     Sidebar, trip view (day strip), day view (map + timeline), PDF export
 main.py                 CLI frontend
 config.py               Model, default city, travel speeds, interest → category mapping

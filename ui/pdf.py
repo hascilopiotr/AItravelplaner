@@ -20,7 +20,7 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FONT = os.path.join(_ROOT, "assets", "fonts", "DejaVuSans.ttf")
 FONT_BOLD = os.path.join(_ROOT, "assets", "fonts", "DejaVuSans-Bold.ttf")
 
-ACCENT = (138, 44, 28)
+ACCENT = (15, 76, 92)
 GREY = (110, 110, 110)
 
 
@@ -40,10 +40,10 @@ def route_map_png(points: list[tuple[float, float]], width: int = 1000, height: 
         lonlat = [(lon, lat) for lat, lon in points]
         if len(lonlat) > 1:
             m.add_line(Line(lonlat, "#ffffff", 7))
-            m.add_line(Line(lonlat, "#8a2c1c", 4))
+            m.add_line(Line(lonlat, "#0F4C5C", 4))
         for p in lonlat:
             m.add_marker(CircleMarker(p, "#ffffff", 30))
-            m.add_marker(CircleMarker(p, "#8a2c1c", 24))
+            m.add_marker(CircleMarker(p, "#0F4C5C", 24))
         img = m.render(zoom=min(m._calculate_zoom(), 16) if len(lonlat) > 1 else 15)
 
         draw = ImageDraw.Draw(img)
