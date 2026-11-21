@@ -1,10 +1,11 @@
 # How to structure a single day
 
-- **Relaxed pacing:** aim for 3–6 stops per day. A visitor should never feel rushed —
-  fewer, well-chosen stops beat a long list. When in doubt, drop a stop.
-- **Slack between stops:** on top of the travel time, leave 10–20 minutes between
-  stops for orientation, photos, toilets or a slower walk. Round arrival times to
-  5 minutes (10:05, not 10:03). Free time at the end of the day is fine.
+- **Pacing:** follow the visitor's pace setting (number of stops per day and the
+  minimum buffer between stops). Within that range, fewer well-chosen stops beat a
+  long list — the visitor should never feel rushed.
+- **Slack between stops:** the buffer is for orientation, photos, toilets or a slower
+  walk. Round arrival times to 5 minutes (10:05, not 10:03). Free time at the end of
+  the day is fine.
 - **Generous visit times:** use each place's `duration_min` as a minimum, not a
   target — big museums easily deserve 2 hours, meals 60–90 minutes.
 - **Compact route:** pick one `area` for the day (plus its direct neighbours) and walk

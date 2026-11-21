@@ -7,7 +7,8 @@ import json
 from datetime import datetime, date
 from math import cos, radians
 
-from config import AREA_GRID_KM, DEFAULT_CITY, INTEREST_SUBCATEGORIES
+from config import AREA_GRID_KM, DEFAULT_CITY, DEFAULT_PACE, INTEREST_SUBCATEGORIES, PACES
+from data.weather import get_forecast
 
 from data.db import city_key, get_all_places, get_city, get_place_by_id
 from planner.llm import generate_trip
@@ -24,14 +25,16 @@ def run_trip(prefs: dict) -> dict:
         dates: ["2026-11-28", ...],          # ISO dates, 1..MAX_TRIP_DAYS
         budget: float,                       # total for the whole trip, per person
         currency: "PLN",                     # optional, defaults to PLN
+        pace: "balanced",                    # optional: relaxed | balanced | packed
         start_time: "09:00", end_time: "20:00",   # same every day
         interests: ["museums", "food"],
         notes: "...",
     }
     Returns {
+        prefs: dict,                 # normalised prefs incl. weather
         plan: dict,                  # raw LLM output (trip_summary, days)
-        days: [{date, day_of_week, plan: {summary, stops}, validation}],
-        trip_validation: {ok, budget_ok, total_cost, budget_limit,
+        days: [{date, day_of_week, weather, plan: {summary, stops}, validation}],
+        trip_validation: {ok, budget_ok, total_cost, budget_limit, currency,
                           repeated_places, missing_days},
     }
     """
@@ -39,28 +42,44 @@ def run_trip(prefs: dict) -> dict:
     if not 1 <= len(dates) <= MAX_TRIP_DAYS:
         raise ValueError(f"A trip must be 1-{MAX_TRIP_DAYS} days long.")
     prefs = {**prefs, "dates": dates, "city": prefs.get("city") or DEFAULT_CITY,
-             "currency": prefs.get("currency") or "PLN"}
+             "currency": prefs.get("currency") or "PLN",
+             "pace": prefs.get("pace") if prefs.get("pace") in PACES else DEFAULT_PACE}
     city = prefs["city"]
 
     all_places = get_all_places(city)
     if not all_places:
         raise ValueError(f"No places loaded for {city}. Run: python -m data.seed {city}")
     known_ids = {p["id"] for p in all_places}
+    city_rec = get_city(city_key(city))
+
+    if "weather" not in prefs:
+        prefs["weather"] = get_forecast(city_rec["lat"], city_rec["lon"], dates) if city_rec else {}
 
     # Longer trips need more unique places to choose from.
     per_sub = min(40 + 8 * len(dates), 120)
     candidates = select_candidates(all_places, prefs.get("interests", []), per_sub)
-    _tag_areas(candidates, get_city(city_key(city)))
+    _tag_areas(candidates, city_rec)
     plan = generate_trip(prefs, candidates)
     _repair_place_ids(plan, candidates, all_places, known_ids)
 
+    return evaluate_trip(prefs, plan, known_ids)
+
+
+def evaluate_trip(prefs: dict, plan: dict, known_ids: set[str] | None = None) -> dict:
+    """Validate a trip plan (per day + whole trip) without calling the AI.
+    Used after generation and again after the user swaps a stop."""
+    city = prefs["city"]
+    if known_ids is None:
+        known_ids = {p["id"] for p in get_all_places(city)}
+    weather = prefs.get("weather") or {}
+
     by_date = {d.get("date"): d for d in plan.get("days", [])}
     days, missing, seen, repeated = [], [], {}, []
-    for iso in dates:
+    for iso in prefs["dates"]:
         day_plan = by_date.get(iso)
         if day_plan is None:
             missing.append(iso)
-            day_plan = {"summary": "", "stops": []}
+            day_plan = {"date": iso, "summary": "", "stops": []}
         # Per-day checks; the budget is checked for the whole trip below.
         stops = _stops_from_plan(day_plan, iso, city)
         v = validate(stops, float("inf"), known_ids).as_dict()
@@ -78,6 +97,7 @@ def run_trip(prefs: dict) -> dict:
         days.append({
             "date": iso,
             "day_of_week": DAYS[date.fromisoformat(iso).weekday()],
+            "weather": weather.get(iso),
             "plan": day_plan,
             "validation": v,
         })
@@ -93,7 +113,7 @@ def run_trip(prefs: dict) -> dict:
         "repeated_places": repeated,
         "missing_days": missing,
     }
-    return {"plan": plan, "days": days, "trip_validation": trip_validation}
+    return {"prefs": prefs, "plan": plan, "days": days, "trip_validation": trip_validation}
 
 
 def run(prefs: dict) -> dict:

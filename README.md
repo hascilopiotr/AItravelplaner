@@ -46,19 +46,22 @@ Your browser opens at http://localhost:8501.
 1. **Pick a city** at the top of the sidebar. Choose **➕ Add another city…** and type
    any city name to download its places (~30 s the first time; cached afterwards).
    **🔄 Refresh** re-downloads the current city, **🗑️ Remove** deletes it locally.
-2. Pick the trip dates (first and last day, up to 11 days), the daily time window,
-   the **total budget for the whole trip** (per person, in the city's currency — e.g.
-   USD for New York, PLN for Kraków), and interests, then press **Generate plan**.
-   Claude plans every day in one go (~40 s for 3 days, longer for long trips).
+2. Pick the trip dates (up to 11 days), the daily hours, the **pace**
+   (🐢 Relaxed 3–4 stops/day · 🚶 Balanced 4–6 · 🏃 Packed 6–8), the **budget per person for
+   the whole trip** in the city's currency, and interests, then press **✨ Plan my trip**.
+   Claude plans every day in one go (~30–40 s for 3 days), using the **weather forecast**
+   (Open-Meteo, for days up to ~16 days ahead) — rainy/cold days get more indoor stops.
 
 You get:
 
-- a trip summary with total cost vs budget and trip-wide checks
-  (over budget, a place visited twice, a missing day),
-- a **week grid** (Mon–Sun, one row per calendar week) — each trip day shows its
-  number of stops, cost and ✅/⚠️; click **Open** to expand that day,
-- for the selected day: the itinerary with times, costs and reasons, a route map,
-  and that day's issues (opening hours, travel time, outside the daily window).
+- a header with city, dates, pace and total cost vs budget, plus trip-wide warnings,
+- a **day strip** — one button per day with ✅/⚠️ and the forecast; click to open a day,
+- for the selected day: a **large map with numbered pins** (left) and a **timeline**
+  (right) with times, prices, walking/transit time between stops and reasons,
+- **⇄ swap** on every stop: pick one of ~4 nearby places of the same kind that are open
+  at that time and not used elsewhere in the trip (instant, no AI call),
+- **🗺️ Open this day in Google Maps** — all stops pinned as a walking route,
+- **📄 PDF guide** — cover page plus one page per day with a route map and details.
 
 Stop the server with `Ctrl+C`.
 
@@ -80,6 +83,7 @@ request — edit them to change how plans are built, no code changes needed:
 | `01_day_structure.md` | Pacing, meal times, variety, routing within a day |
 | `02_multi_day.md` | No repeats, one theme/area per day, spreading the budget |
 | `03_data_caveats.md` | How to treat costs, missing opening hours, Monday closures |
+| `04_weather.md` | How rain, cold and heat should shape a day |
 | `cities/<city>.md` | Optional notes for one city (e.g. `cities/kraków.md`) |
 
 Any new `*.md` file in that folder is picked up automatically (in filename order).
@@ -88,11 +92,12 @@ Restart Streamlit after editing.
 ## Project layout
 
 ```
-app.py                  Streamlit frontend
+app.py                  Streamlit entry point
+ui/                     Sidebar, trip view (day strip), day view (map + timeline), PDF export
 main.py                 CLI frontend
 config.py               Model, default city, travel speeds, interest → category mapping
-data/                   City geocoding + cache, Overpass fetcher, SQLite access, seed script
-planner/                Candidate filtering, prompts, Claude call, trip pipeline
+data/                   City search + cache, Overpass fetcher, weather, SQLite, seed script
+planner/                Candidate filtering, prompts, Claude call, trip pipeline, swaps
 planner/instructions/   Editable planning guidance for the AI (Markdown)
 validator/              Budget / opening hours / travel-time checks
 tests/                  Test queries and evaluation harness
@@ -105,7 +110,7 @@ tests/                  Test queries and evaluation harness
 - **City search** is typo-tolerant (Photon, OpenStreetMap-based): "krakw" finds Kraków.
 - **Travel time:** gaps up to 15 minutes shorter than the estimated travel time are
   not reported (straight-line distances are rough). Tunable in `config.py`
-  (`TRAVEL_TOLERANCE_MIN`, `STOP_BUFFER_MIN`).
+  (`TRAVEL_TOLERANCE_MIN`; pace presets in `PACES`).
 - **Compact days:** each place gets an `area` label (1.5 km grid around the centre) so
   Claude can keep every day in one neighbourhood.
 - OpenStreetMap sometimes lists one attraction twice under different names; a plan may
@@ -113,6 +118,9 @@ tests/                  Test queries and evaluation harness
 - The search area is the city's boundary, capped at 10 km from the centre.
 - Upgrading from the Katowice-only version: the old `data/katowice.db` is no longer
   used; places now live in `data/places.db`.
+
+- Maps use OpenStreetMap tiles (in the app and the PDF); the Google Maps button needs no key.
+- PDF fonts: DejaVu Sans (`assets/fonts/`, free licence in `assets/fonts/LICENSE`).
 
 ## API key security
 

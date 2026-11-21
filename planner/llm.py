@@ -77,7 +77,7 @@ def generate_trip(prefs: dict, places: list[dict]) -> dict:
     with _client.messages.stream(
         model=MODEL,
         max_tokens=32000,
-        system=build_system_prompt(prefs["city"], prefs["currency"]),
+        system=build_system_prompt(prefs["city"], prefs["currency"], prefs.get("pace", "balanced")),
         messages=[{"role": "user", "content": user_msg}],
         # Structured outputs: the API guarantees the reply is JSON matching
         # TRIP_SCHEMA, so the model can't wrap it in prose or markdown.
