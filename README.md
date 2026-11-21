@@ -1,6 +1,6 @@
 # AI Travel Planner
 
-Builds a one-day sightseeing plan for any city with Claude, using real places from
+Builds a sightseeing plan of 1–11 days for any city with Claude, using real places from
 OpenStreetMap, then checks the plan in code against your budget, opening hours and
 travel times between stops.
 
@@ -46,13 +46,18 @@ Your browser opens at http://localhost:8501.
 1. **Pick a city** at the top of the sidebar. Choose **➕ Add another city…** and type
    any city name to download its places (~30 s the first time; cached afterwards).
    **🔄 Refresh** re-downloads the current city, **🗑️ Remove** deletes it locally.
-2. Pick a date, time window, budget and interests, then press **Generate plan**.
+2. Pick the trip dates (first and last day, up to 11 days), the daily time window,
+   the **total budget for the whole trip**, and interests, then press **Generate plan**.
+   Claude plans every day in one go (~40 s for 3 days, longer for long trips).
 
 You get:
 
-- the itinerary with times, costs and why each stop was chosen,
-- a map of the route,
-- validation results (budget, opening hours, travel time, unknown places).
+- a trip summary with total cost vs budget and trip-wide checks
+  (over budget, a place visited twice, a missing day),
+- a **week grid** (Mon–Sun, one row per calendar week) — each trip day shows its
+  number of stops, cost and ✅/⚠️; click **Open** to expand that day,
+- for the selected day: the itinerary with times, costs and reasons, a route map,
+  and that day's issues (opening hours, travel time, outside the daily window).
 
 Stop the server with `Ctrl+C`.
 
@@ -60,9 +65,24 @@ Stop the server with `Ctrl+C`.
 
 | Command | What it does |
 |---|---|
-| `python main.py` | Terminal version of the planner (interactive prompts) |
+| `python main.py` | Terminal version of the planner (single day, interactive prompts) |
 | `python -m data.seed [CITY]` | Download / refresh a city's places from OpenStreetMap |
 | `python tests/evaluate.py` | Run the 20 test queries and score the plans (calls the API 20×) |
+
+## Teaching the AI how to plan
+
+The files in `planner/instructions/` are added to Claude's instructions on every
+request — edit them to change how plans are built, no code changes needed:
+
+| File | Covers |
+|---|---|
+| `01_day_structure.md` | Pacing, meal times, variety, routing within a day |
+| `02_multi_day.md` | No repeats, one theme/area per day, spreading the budget |
+| `03_data_caveats.md` | How to treat costs, missing opening hours, Monday closures |
+| `cities/<city>.md` | Optional notes for one city (e.g. `cities/kraków.md`) |
+
+Any new `*.md` file in that folder is picked up automatically (in filename order).
+Restart Streamlit after editing.
 
 ## Project layout
 
@@ -71,7 +91,8 @@ app.py                  Streamlit frontend
 main.py                 CLI frontend
 config.py               Model, default city, travel speeds, interest → category mapping
 data/                   City geocoding + cache, Overpass fetcher, SQLite access, seed script
-planner/                Candidate filtering, prompts, Claude call, pipeline
+planner/                Candidate filtering, prompts, Claude call, trip pipeline
+planner/instructions/   Editable planning guidance for the AI (Markdown)
 validator/              Budget / opening hours / travel-time checks
 tests/                  Test queries and evaluation harness
 ```

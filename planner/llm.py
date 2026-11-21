@@ -1,6 +1,6 @@
 """
-Calls the LLM to generate a day-plan from preferences + available places.
-Returns a parsed plan dict or raises on bad JSON.
+Calls the LLM to generate a (multi-day) trip plan from preferences + available places.
+Returns the parsed plan dict or raises ValueError.
 """
 
 import json
@@ -10,33 +10,44 @@ from planner.prompts import build_system_prompt, build_user_prompt
 
 _client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
-PLAN_SCHEMA = {
+STOP_SCHEMA = {
     "type": "object",
     "properties": {
-        "plan_summary": {"type": "string"},
-        "stops": {
+        "place_id": {"type": "string"},
+        "name": {"type": "string"},
+        "arrival": {"type": "string", "description": "HH:MM, 24h"},
+        "departure": {"type": "string", "description": "HH:MM, 24h"},
+        "cost_pln": {"type": "number"},
+        "reason": {"type": "string"},
+    },
+    "required": ["place_id", "name", "arrival", "departure", "cost_pln", "reason"],
+    "additionalProperties": False,
+}
+
+TRIP_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "trip_summary": {"type": "string"},
+        "days": {
             "type": "array",
             "items": {
                 "type": "object",
                 "properties": {
-                    "place_id": {"type": "string"},
-                    "name": {"type": "string"},
-                    "arrival": {"type": "string", "description": "HH:MM, 24h"},
-                    "departure": {"type": "string", "description": "HH:MM, 24h"},
-                    "cost_pln": {"type": "number"},
-                    "reason": {"type": "string"},
+                    "date": {"type": "string", "description": "YYYY-MM-DD"},
+                    "summary": {"type": "string"},
+                    "stops": {"type": "array", "items": STOP_SCHEMA},
                 },
-                "required": ["place_id", "name", "arrival", "departure", "cost_pln", "reason"],
+                "required": ["date", "summary", "stops"],
                 "additionalProperties": False,
             },
         },
     },
-    "required": ["plan_summary", "stops"],
+    "required": ["trip_summary", "days"],
     "additionalProperties": False,
 }
 
 
-def generate_plan(prefs: dict, places: list[dict]) -> dict:
+def _slim(places: list[dict]) -> str:
     slim_places = [
         {
             "place_id": p["id"],
@@ -52,24 +63,30 @@ def generate_plan(prefs: dict, places: list[dict]) -> dict:
         }
         for p in places
     ]
+    return json.dumps(slim_places, ensure_ascii=False, separators=(",", ":"))
 
-    places_json = json.dumps(slim_places, ensure_ascii=False, separators=(",", ":"))
-    user_msg = build_user_prompt(prefs, places_json)
 
-    message = _client.messages.create(
+def generate_trip(prefs: dict, places: list[dict]) -> dict:
+    """prefs needs: city, dates (list of ISO dates), start_time, end_time,
+    budget_pln (whole trip), interests, notes."""
+    user_msg = build_user_prompt(prefs, _slim(places))
+
+    # Streaming: an 11-day plan is a long response; streaming avoids HTTP timeouts.
+    with _client.messages.stream(
         model=MODEL,
-        max_tokens=16000,
+        max_tokens=32000,
         system=build_system_prompt(prefs["city"]),
         messages=[{"role": "user", "content": user_msg}],
         # Structured outputs: the API guarantees the reply is JSON matching
-        # PLAN_SCHEMA, so the model can't wrap it in prose or markdown.
-        output_config={"format": {"type": "json_schema", "schema": PLAN_SCHEMA}},
-    )
+        # TRIP_SCHEMA, so the model can't wrap it in prose or markdown.
+        output_config={"format": {"type": "json_schema", "schema": TRIP_SCHEMA}},
+    ) as stream:
+        message = stream.get_final_message()
 
     if message.stop_reason == "refusal":
         raise ValueError("The model declined to produce a plan for this request.")
     if message.stop_reason == "max_tokens":
-        raise ValueError("The plan was cut off (max_tokens reached). Try a shorter day or fewer interests.")
+        raise ValueError("The plan was cut off (max_tokens reached). Try fewer days.")
 
     raw = next((b.text for b in message.content if b.type == "text"), "")
     try:

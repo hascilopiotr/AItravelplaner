@@ -12,7 +12,7 @@ import streamlit as st
 from config import ANTHROPIC_API_KEY, DEFAULT_CITY, INTERESTS_OPTIONS
 from data.cities import CityNotFound, ensure_city
 from data.db import delete_city, get_place_by_id, init_db, list_cities
-from planner.pipeline import run
+from planner.pipeline import MAX_TRIP_DAYS, run_trip
 
 DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 NEW_CITY = "➕ Add another city…"
@@ -100,13 +100,17 @@ st.caption("A one-day plan built by Claude from real OpenStreetMap places, then 
 # ── Sidebar: preferences ────────────────────────────────────────────────────
 
 with st.sidebar:
-    st.header("Your day")
+    st.header("Your trip")
     with st.form("prefs_form"):
-        visit_date = st.date_input("Date", value=date.today() + timedelta(days=1), min_value=date.today())
+        tomorrow = date.today() + timedelta(days=1)
+        date_range = st.date_input(
+            f"Dates (up to {MAX_TRIP_DAYS} days)", value=(tomorrow, tomorrow + timedelta(days=2)),
+            min_value=date.today(), help="Pick the first and last day of the trip.",
+        )
         c1, c2 = st.columns(2)
-        start_t = c1.time_input("Start", value=time(10, 0), step=timedelta(minutes=15))
-        end_t = c2.time_input("End", value=time(19, 0), step=timedelta(minutes=15))
-        budget = st.slider("Budget (PLN)", min_value=0, max_value=1000, value=150, step=10)
+        start_t = c1.time_input("Daily start", value=time(10, 0), step=timedelta(minutes=15))
+        end_t = c2.time_input("Daily end", value=time(19, 0), step=timedelta(minutes=15))
+        budget = st.slider("Trip budget (PLN, all days)", min_value=0, max_value=5000, value=450, step=50)
         interests = st.multiselect("Interests", INTERESTS_OPTIONS, default=["museums", "food", "parks"])
         notes = st.text_area("Notes (optional)", placeholder="e.g. travelling with kids, vegetarian, no stairs")
         submitted = st.form_submit_button("✨ Generate plan", type="primary", use_container_width=True)
@@ -114,115 +118,205 @@ with st.sidebar:
 
 # ── Generate ────────────────────────────────────────────────────────────────
 
+def _trip_dates(rng) -> list[date]:
+    if isinstance(rng, date):
+        rng = (rng, rng)
+    if not rng:
+        return []
+    start, end = rng[0], rng[-1]
+    return [start + timedelta(days=i) for i in range((end - start).days + 1)]
+
+
 if submitted:
-    if end_t <= start_t:
-        st.sidebar.error("End time must be after start time.")
+    dates = _trip_dates(date_range)
+    if not dates:
+        st.sidebar.error("Pick the trip dates.")
+    elif len(dates) > MAX_TRIP_DAYS:
+        st.sidebar.error(f"Trips can be at most {MAX_TRIP_DAYS} days (you picked {len(dates)}).")
+    elif end_t <= start_t:
+        st.sidebar.error("Daily end time must be after the start time.")
     elif not interests:
         st.sidebar.error("Pick at least one interest.")
     else:
         prefs = {
             "city": city["name"],
+            "dates": [d.isoformat() for d in dates],
             "budget_pln": float(budget),
             "start_time": start_t.strftime("%H:%M"),
             "end_time": end_t.strftime("%H:%M"),
             "interests": interests,
-            "day_of_week": DAYS[visit_date.weekday()],
-            "visit_date": visit_date.isoformat(),
             "notes": notes.strip(),
         }
-        with st.spinner("Claude is planning your day..."):
+        n = len(dates)
+        with st.spinner(f"Claude is planning your {n}-day trip"
+                        + (" (longer trips take a minute or two)..." if n > 3 else "...")):
             try:
-                st.session_state["result"] = run(prefs)
+                st.session_state["result"] = run_trip(prefs)
                 st.session_state["prefs"] = prefs
+                st.session_state["selected_day"] = prefs["dates"][0]
             except Exception as e:  # show any API / parsing error in the UI
                 st.session_state.pop("result", None)
                 st.error(f"Could not generate a plan: {e}")
 
 result = st.session_state.get("result")
-if not result:
-    st.info("Set your preferences in the sidebar and press **Generate plan**.")
+if not result or "days" not in result:
+    st.info("Pick your dates and preferences in the sidebar and press **Generate plan**.")
     st.stop()
 
 
-# ── Results ─────────────────────────────────────────────────────────────────
+# ── Helpers ─────────────────────────────────────────────────────────────────
 
-plan, validation, prefs = result["plan"], result["validation"], st.session_state["prefs"]
-stops = plan.get("stops", [])
+def _issues(v: dict) -> list[str]:
+    out = [f"🕒 {x}" for x in v["hours_violations"]]
+    out += [f"🚶 Travel time: {x}" for x in v["travel_violations"]]
+    out += [f"❓ Not in database: {x}" for x in v["unknown_places"]]
+    return out
 
-rows = []
-for i, s in enumerate(stops, 1):
-    place = get_place_by_id(prefs["city"], s.get("place_id", "")) or {}
-    rows.append({
-        "n": i,
-        "name": s.get("name", "?"),
-        "arrival": s.get("arrival", ""),
-        "departure": s.get("departure", ""),
-        "cost_pln": float(s.get("cost_pln", 0) or 0),
-        "reason": s.get("reason", ""),
-        "subcategory": place.get("subcategory", ""),
-        "address": place.get("address") or "",
-        "opening_hours": place.get("opening_hours") or "unknown",
-        "lat": place.get("lat"),
-        "lon": place.get("lon"),
-    })
-df = pd.DataFrame(rows)
 
-st.subheader(f"{prefs['day_of_week']}, {prefs['visit_date']} · {prefs['start_time']}–{prefs['end_time']}")
-st.write(plan.get("plan_summary", ""))
+def _select_day(iso: str):
+    st.session_state["selected_day"] = iso
 
-m1, m2, m3 = st.columns(3)
-m1.metric("Stops", len(stops))
-m2.metric("Total cost", f"{validation['total_cost']:.0f} PLN",
-          delta=f"{validation['budget_limit'] - validation['total_cost']:.0f} PLN left",
-          delta_color="normal" if validation["budget_ok"] else "inverse")
-m3.metric("Validation", "✅ Passed" if validation["ok"] else "⚠️ Issues")
 
-if not validation["ok"]:
-    with st.container(border=True):
-        st.markdown("**Validation issues**")
-        if not validation["budget_ok"]:
-            st.markdown(f"- 💸 Budget exceeded: {validation['total_cost']:.0f} PLN "
-                        f"> {validation['budget_limit']:.0f} PLN")
-        for v in validation["hours_violations"]:
-            st.markdown(f"- 🕒 Opening hours: {v}")
-        for v in validation["travel_violations"]:
-            st.markdown(f"- 🚶 Travel time: {v}")
-        for v in validation["unknown_places"]:
-            st.markdown(f"- ❓ Not in database: {v}")
+def render_day(day: dict, city_key: str):
+    plan, v = day["plan"], day["validation"]
+    stops = plan.get("stops", [])
+    d = date.fromisoformat(day["date"])
 
-left, right = st.columns([1, 1], gap="large")
+    st.subheader(f"{day['day_of_week']}, {d.strftime('%d %B %Y')}")
+    if plan.get("summary"):
+        st.write(plan["summary"])
 
-with left:
-    st.markdown("#### Itinerary")
-    for r in rows:
+    issues = _issues(v)
+    if issues:
         with st.container(border=True):
-            st.markdown(f"**{r['n']}. {r['name']}**  \n"
-                        f"🕒 {r['arrival']}–{r['departure']} · 💰 {r['cost_pln']:.0f} PLN"
-                        + (f" · _{r['subcategory']}_" if r["subcategory"] else ""))
-            st.caption(r["reason"])
-            details = [x for x in (r["address"], f"Hours: {r['opening_hours']}") if x]
-            st.caption(" · ".join(details))
+            st.markdown("**Issues on this day**")
+            for x in issues:
+                st.markdown(f"- {x}")
 
-with right:
-    st.markdown("#### Map")
-    geo = df.dropna(subset=["lat", "lon"]) if not df.empty else df
-    if geo.empty:
-        st.caption("No coordinates available for these stops.")
-    else:
-        path = [{"path": geo[["lon", "lat"]].values.tolist()}]
-        layers = [
-            pdk.Layer("PathLayer", path, get_path="path", get_color=[255, 140, 0],
-                      width_min_pixels=3),
-            pdk.Layer("ScatterplotLayer", geo, get_position=["lon", "lat"],
-                      get_fill_color=[220, 30, 60], get_radius=60, radius_min_pixels=7,
-                      pickable=True),
-            pdk.Layer("TextLayer", geo.assign(label=geo["n"].astype(str)),
-                      get_position=["lon", "lat"], get_text="label", get_size=14,
-                      get_color=[255, 255, 255], get_alignment_baseline="'center'"),
-        ]
-        view = pdk.ViewState(latitude=geo["lat"].mean(), longitude=geo["lon"].mean(), zoom=13)
-        st.pydeck_chart(pdk.Deck(layers=layers, initial_view_state=view,
-                                 tooltip={"text": "{n}. {name}\n{arrival}–{departure}"}))
+    if not stops:
+        st.warning("No stops were planned for this day.")
+        return
+
+    rows = []
+    for i, s in enumerate(stops, 1):
+        place = get_place_by_id(city_key, s.get("place_id", "")) or {}
+        rows.append({
+            "n": i,
+            "name": s.get("name", "?"),
+            "arrival": s.get("arrival", ""),
+            "departure": s.get("departure", ""),
+            "cost_pln": float(s.get("cost_pln", 0) or 0),
+            "reason": s.get("reason", ""),
+            "subcategory": place.get("subcategory", ""),
+            "address": place.get("address") or "",
+            "opening_hours": place.get("opening_hours") or "unknown",
+            "lat": place.get("lat"),
+            "lon": place.get("lon"),
+        })
+    df = pd.DataFrame(rows)
+
+    left, right = st.columns([1, 1], gap="large")
+    with left:
+        st.markdown(f"#### Itinerary · {len(stops)} stops · {v['total_cost']:.0f} PLN")
+        for r in rows:
+            with st.container(border=True):
+                st.markdown(f"**{r['n']}. {r['name']}**  \n"
+                            f"🕒 {r['arrival']}–{r['departure']} · 💰 {r['cost_pln']:.0f} PLN"
+                            + (f" · _{r['subcategory']}_" if r["subcategory"] else ""))
+                st.caption(r["reason"])
+                st.caption(" · ".join(x for x in (r["address"], f"Hours: {r['opening_hours']}") if x))
+
+    with right:
+        st.markdown("#### Map")
+        geo = df.dropna(subset=["lat", "lon"])
+        if geo.empty:
+            st.caption("No coordinates available for these stops.")
+        else:
+            path = [{"path": geo[["lon", "lat"]].values.tolist()}]
+            layers = [
+                pdk.Layer("PathLayer", path, get_path="path", get_color=[255, 140, 0],
+                          width_min_pixels=3),
+                pdk.Layer("ScatterplotLayer", geo, get_position=["lon", "lat"],
+                          get_fill_color=[220, 30, 60], get_radius=60, radius_min_pixels=7,
+                          pickable=True),
+                pdk.Layer("TextLayer", geo.assign(label=geo["n"].astype(str)),
+                          get_position=["lon", "lat"], get_text="label", get_size=14,
+                          get_color=[255, 255, 255], get_alignment_baseline="'center'"),
+            ]
+            view = pdk.ViewState(latitude=geo["lat"].mean(), longitude=geo["lon"].mean(), zoom=13)
+            st.pydeck_chart(pdk.Deck(layers=layers, initial_view_state=view,
+                                     tooltip={"text": "{n}. {name}\n{arrival}–{departure}"}))
+
+
+# ── Trip overview ───────────────────────────────────────────────────────────
+
+prefs, tv = st.session_state["prefs"], result["trip_validation"]
+days = {d["date"]: d for d in result["days"]}
+first, last = date.fromisoformat(prefs["dates"][0]), date.fromisoformat(prefs["dates"][-1])
+
+st.subheader(f"{len(days)}-day trip · {first.strftime('%d %b')} – {last.strftime('%d %b %Y')} · "
+             f"{prefs['start_time']}–{prefs['end_time']} daily")
+st.write(result["plan"].get("trip_summary", ""))
+
+n_issue_days = sum(1 for d in days.values() if not d["validation"]["ok"])
+m1, m2, m3, m4 = st.columns(4)
+m1.metric("Days", len(days))
+m2.metric("Stops", sum(len(d["plan"].get("stops", [])) for d in days.values()))
+m3.metric("Total cost", f"{tv['total_cost']:.0f} PLN",
+          delta=f"{tv['budget_limit'] - tv['total_cost']:.0f} PLN left",
+          delta_color="normal" if tv["budget_ok"] else "inverse")
+m4.metric("Validation", "✅ Passed" if tv["ok"] else f"⚠️ Issues on {n_issue_days} day(s)"
+          if n_issue_days else "⚠️ Trip issues")
+
+trip_issues = []
+if not tv["budget_ok"]:
+    trip_issues.append(f"💸 Trip budget exceeded: {tv['total_cost']:.0f} PLN > {tv['budget_limit']:.0f} PLN")
+trip_issues += [f"🔁 Visited twice: {x}" for x in tv["repeated_places"]]
+trip_issues += [f"📭 No plan returned for {x}" for x in tv["missing_days"]]
+if trip_issues:
+    with st.container(border=True):
+        st.markdown("**Trip issues**")
+        for x in trip_issues:
+            st.markdown(f"- {x}")
+
+
+# ── Week grid ───────────────────────────────────────────────────────────────
+
+st.markdown("#### Your week")
+st.caption("Click a day to see its plan.")
+
+header = st.columns(7)
+for col, name in zip(header, DAYS):
+    col.markdown(f"<div style='text-align:center;font-weight:600'>{name[:3]}</div>",
+                 unsafe_allow_html=True)
+
+week_start = first - timedelta(days=first.weekday())
+selected = st.session_state.get("selected_day", prefs["dates"][0])
+while week_start <= last:
+    cols = st.columns(7)
+    for i, col in enumerate(cols):
+        d = week_start + timedelta(days=i)
+        iso = d.isoformat()
+        with col:
+            if iso in days:
+                day = days[iso]
+                v = day["validation"]
+                n_stops = len(day["plan"].get("stops", []))
+                with st.container(border=True):
+                    st.markdown(f"**{d.strftime('%d %b')}** {'✅' if v['ok'] else '⚠️'}")
+                    st.caption(f"{n_stops} stops · {v['total_cost']:.0f} PLN")
+                    st.button("Viewing" if iso == selected else "Open", key=f"day_{iso}",
+                              type="primary" if iso == selected else "secondary",
+                              on_click=_select_day, args=(iso,), use_container_width=True)
+            else:
+                st.markdown(
+                    f"<div style='text-align:center;color:#999;padding:2.2rem 0;"
+                    f"border:1px dashed #ddd;border-radius:0.5rem'>{d.strftime('%d %b')}</div>",
+                    unsafe_allow_html=True)
+    week_start += timedelta(days=7)
+
+st.divider()
+render_day(days.get(selected) or days[prefs["dates"][0]], prefs["city"])
 
 with st.expander("Raw plan JSON"):
-    st.json(plan)
+    st.json(result["plan"])
