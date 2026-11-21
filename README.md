@@ -43,9 +43,9 @@ streamlit run app.py
 
 Your browser opens at http://localhost:8501.
 
-1. **Pick a city** at the top of the sidebar. Choose **➕ Add another city…** and type
+1. **Pick a city** at the top of the sidebar. Choose **Add another city…** and type
    any city name to download its places (~30 s the first time; cached afterwards).
-   **🔄 Refresh** re-downloads the current city, **🗑️ Remove** deletes it locally.
+   **Refresh** re-downloads the current city, **Remove** deletes it locally.
 2. Pick the trip dates (up to 11 days), the daily hours, the **pace**
    (Relaxed 3–4 stops a day · Balanced 4–6 · Packed 6–8), the **budget per person for
    the whole trip** in the city's currency, and interests, then press **Plan trip**.
