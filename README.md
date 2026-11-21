@@ -24,9 +24,9 @@ python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-# 2. API key
-cp .env.example .env
-#    then edit .env and set ANTHROPIC_API_KEY=sk-ant-...
+# 2. API key: create a file named .env in the project root containing
+#    ANTHROPIC_API_KEY=sk-ant-...
+echo "ANTHROPIC_API_KEY=sk-ant-..." > .env && chmod 600 .env   # then put your real key in it
 
 # 3. (Optional) pre-download a city's places into data/places.db (~30 s each).
 #    The web app also downloads cities on demand, so you can skip this.
