@@ -7,18 +7,28 @@ address = "localhost"
 [client]
 toolbarMode = "minimal"
 
+# "Golden hour atlas": cream paper and navy ink, terracotta for actions,
+# saffron for highlights. The sidebar is a navy passport cover.
 [theme]
 base = "light"
-# One main colour: petrol teal. Everything else is paper, ink and teal tints.
-primaryColor = "#0F4C5C"
-backgroundColor = "#F5F1E8"
-secondaryBackgroundColor = "#ECE6DA"
-textColor = "#1C2427"
-borderColor = "#D6CEBF"
-linkColor = "#0F4C5C"
-baseRadius = "3px"
+primaryColor = "#C24A2E"
+backgroundColor = "#F4ECDD"
+secondaryBackgroundColor = "#EADFCB"
+textColor = "#1B2A33"
+borderColor = "#D9CBB2"
+linkColor = "#13435A"
+baseRadius = "10px"
 showWidgetBorder = true
-showSidebarBorder = true
-font = "IBM Plex Sans:https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap"
-headingFont = "Fraunces:https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&display=swap"
-codeFont = "IBM Plex Mono:https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+showSidebarBorder = false
+font = "Schibsted Grotesk:https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600;700&display=swap"
+headingFont = "Instrument Serif:https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap"
+codeFont = "Martian Mono:https://fonts.googleapis.com/css2?family=Martian+Mono:wght@400;500;600&display=swap"
+headingFontWeights = [400, 400, 400, 400, 400, 400]
+
+[theme.sidebar]
+backgroundColor = "#11293A"
+secondaryBackgroundColor = "#1B3A4E"
+textColor = "#F1E7D3"
+primaryColor = "#EDB140"
+borderColor = "#2D4C61"
+linkColor = "#EDB140"

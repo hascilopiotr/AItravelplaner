@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, time, timedelta
+from html import escape
 
 import streamlit as st
 
@@ -94,7 +95,8 @@ def city_section() -> dict:
         st.session_state.pop("result", None)
 
     city = by_key[st.session_state["city"]]
-    st.caption(f"{city['n_places']:,} places · data from {city['fetched_at'][:10]}")
+    st.html(f"<div class='tp-citymeta'><b>{city['n_places']:,}</b> places mapped"
+            f"<span>OSM · {escape(city['fetched_at'][:10])}</span></div>")
     c1, c2 = st.columns(2)
     if c1.button("Update data", type="tertiary", help="Download this city's places again from OpenStreetMap"):
         if _run_download(short_name(city), refresh_city, city["name"]):
@@ -142,7 +144,8 @@ def trip_form(city: dict) -> dict | None:
                                  help="For the whole trip: tickets, food and drinks. Not accommodation.")
         interests = st.multiselect("Interested in", INTERESTS_OPTIONS, default=["museums", "food", "parks"])
         notes = st.text_area("Notes for the planner", placeholder="Two kids, vegetarian, avoid stairs…")
-        submitted = st.form_submit_button("Plan trip", type="primary", use_container_width=True)
+        submitted = st.form_submit_button("Plan my trip", type="primary", use_container_width=True,
+                                          icon=":material/flight_takeoff:")
 
     if not submitted:
         return None
