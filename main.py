@@ -11,8 +11,9 @@ from rich.panel import Panel
 from rich.json import JSON
 
 from planner.pipeline import run
-from data.db import init_db, count_places
-from config import INTERESTS_OPTIONS
+from data.cities import ensure_city
+from data.db import count_places
+from config import DEFAULT_CITY, INTERESTS_OPTIONS
 
 console = Console()
 
@@ -21,12 +22,12 @@ DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sun
 
 
 def ask_preferences() -> dict:
-    console.print(Panel("[bold cyan]AI Travel Planner — Katowice[/]", expand=False))
-    init_db()
-    n = count_places()
-    console.print(f"Database has [bold]{n}[/] places loaded.\n")
-    if n == 0:
-        console.print("[yellow]Warning: database is empty. Run 'python -m data.seed' first.[/]\n")
+    console.print(Panel("[bold cyan]AI Travel Planner[/]", expand=False))
+
+    city = Prompt.ask("City", default=DEFAULT_CITY)
+    with console.status(f"Loading places for {city} (first time downloads from OpenStreetMap)..."):
+        record = ensure_city(city)
+    console.print(f"{record['display_name']}: [bold]{count_places(record['name'])}[/] places loaded.\n")
 
     budget = IntPrompt.ask("Your budget (PLN)", default=150)
     start_time = Prompt.ask("Start time (HH:MM)", default="10:00")
@@ -44,6 +45,7 @@ def ask_preferences() -> dict:
     notes = Prompt.ask("Any notes? (optional)", default="")
 
     return {
+        "city": city,
         "budget_pln": float(budget),
         "start_time": start_time,
         "end_time": end_time,

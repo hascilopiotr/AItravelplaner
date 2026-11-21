@@ -6,7 +6,7 @@ Returns a parsed plan dict or raises on bad JSON.
 import json
 import anthropic
 from config import ANTHROPIC_API_KEY, MODEL
-from planner.prompts import SYSTEM_PROMPT, build_user_prompt
+from planner.prompts import build_system_prompt, build_user_prompt
 
 _client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
@@ -47,6 +47,8 @@ def generate_plan(prefs: dict, places: list[dict]) -> dict:
             "duration_min": p["duration_min"],
             "opening_hours": p["opening_hours"],
             "address": p["address"],
+            "lat": round(p["lat"], 5),
+            "lon": round(p["lon"], 5),
         }
         for p in places
     ]
@@ -57,7 +59,7 @@ def generate_plan(prefs: dict, places: list[dict]) -> dict:
     message = _client.messages.create(
         model=MODEL,
         max_tokens=16000,
-        system=SYSTEM_PROMPT,
+        system=build_system_prompt(prefs["city"]),
         messages=[{"role": "user", "content": user_msg}],
         # Structured outputs: the API guarantees the reply is JSON matching
         # PLAN_SCHEMA, so the model can't wrap it in prose or markdown.

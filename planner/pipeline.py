@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, date
 
-from config import INTEREST_SUBCATEGORIES
+from config import DEFAULT_CITY, INTEREST_SUBCATEGORIES
 
 from data.db import get_all_places, get_place_by_id
 from planner.llm import generate_plan
@@ -16,6 +16,7 @@ from validator.checker import validate, ScheduledStop, ValidationResult
 def run(prefs: dict) -> dict:
     """
     prefs = {
+        city: "Katowice",           # optional, defaults to DEFAULT_CITY
         budget_pln: float,
         start_time: "09:00",
         end_time: "20:00",
@@ -29,13 +30,17 @@ def run(prefs: dict) -> dict:
         validation: dict,    # ValidationResult.as_dict()
     }
     """
-    all_places = get_all_places()
+    prefs = {**prefs, "city": prefs.get("city") or DEFAULT_CITY}
+    city = prefs["city"]
+    all_places = get_all_places(city)
+    if not all_places:
+        raise ValueError(f"No places loaded for {city}. Run: python -m data.seed {city}")
     known_ids = {p["id"] for p in all_places}
 
     candidates = select_candidates(all_places, prefs.get("interests", []))
     plan = generate_plan(prefs, candidates)
 
-    stops = _stops_from_plan(plan, prefs["visit_date"])
+    stops = _stops_from_plan(plan, prefs["visit_date"], city)
     result: ValidationResult = validate(stops, prefs["budget_pln"], known_ids)
 
     return {
@@ -88,7 +93,7 @@ def select_candidates(places: list[dict], interests: list[str], per_subcategory:
     return selected
 
 
-def _stops_from_plan(plan: dict, visit_date: str) -> list[ScheduledStop]:
+def _stops_from_plan(plan: dict, visit_date: str, city: str) -> list[ScheduledStop]:
     stops = []
     d = date.fromisoformat(visit_date)
 
@@ -97,7 +102,7 @@ def _stops_from_plan(plan: dict, visit_date: str) -> list[ScheduledStop]:
         return datetime(d.year, d.month, d.day, int(h), int(m))
 
     for s in plan.get("stops", []):
-        db_place = get_place_by_id(s["place_id"])
+        db_place = get_place_by_id(city, s["place_id"])
 
         stops.append(ScheduledStop(
             place_id=s["place_id"],

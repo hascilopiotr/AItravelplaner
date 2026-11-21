@@ -1,11 +1,11 @@
-# AI Travel Planner — Katowice
+# AI Travel Planner
 
-Builds a one-day sightseeing plan for Katowice with Claude, using real places from
+Builds a one-day sightseeing plan for any city with Claude, using real places from
 OpenStreetMap, then checks the plan in code against your budget, opening hours and
 travel times between stops.
 
 ```
-OpenStreetMap (Overpass API) ─► SQLite ─► filter by interests ─► Claude ─► validator ─► Streamlit UI
+City name ─► Nominatim (geocode) ─► Overpass API ─► SQLite (cached per city) ─► filter by interests ─► Claude ─► validator ─► Streamlit UI
 ```
 
 ## Requirements
@@ -28,8 +28,10 @@ pip install -r requirements.txt
 cp .env.example .env
 #    then edit .env and set ANTHROPIC_API_KEY=sk-ant-...
 
-# 3. Download Katowice places into data/katowice.db (~30 s)
-python -m data.seed
+# 3. (Optional) pre-download a city's places into data/places.db (~30 s each).
+#    The web app also downloads cities on demand, so you can skip this.
+python -m data.seed            # Katowice (default)
+python -m data.seed Kraków
 ```
 
 ## Run the web app
@@ -39,8 +41,14 @@ source .venv/bin/activate
 streamlit run app.py
 ```
 
-Your browser opens at http://localhost:8501. Pick a date, time window, budget and
-interests in the sidebar and press **Generate plan**. You get:
+Your browser opens at http://localhost:8501.
+
+1. **Pick a city** at the top of the sidebar. Choose **➕ Add another city…** and type
+   any city name to download its places (~30 s the first time; cached afterwards).
+   **🔄 Refresh** re-downloads the current city, **🗑️ Remove** deletes it locally.
+2. Pick a date, time window, budget and interests, then press **Generate plan**.
+
+You get:
 
 - the itinerary with times, costs and why each stop was chosen,
 - a map of the route,
@@ -53,7 +61,7 @@ Stop the server with `Ctrl+C`.
 | Command | What it does |
 |---|---|
 | `python main.py` | Terminal version of the planner (interactive prompts) |
-| `python -m data.seed` | Re-download / refresh places from OpenStreetMap |
+| `python -m data.seed [CITY]` | Download / refresh a city's places from OpenStreetMap |
 | `python tests/evaluate.py` | Run the 20 test queries and score the plans (calls the API 20×) |
 
 ## Project layout
@@ -61,12 +69,20 @@ Stop the server with `Ctrl+C`.
 ```
 app.py                  Streamlit frontend
 main.py                 CLI frontend
-config.py               Model, city bbox, speeds, interest → category mapping
-data/                   Overpass fetcher, SQLite access, seed script
+config.py               Model, default city, travel speeds, interest → category mapping
+data/                   City geocoding + cache, Overpass fetcher, SQLite access, seed script
 planner/                Candidate filtering, prompts, Claude call, pipeline
 validator/              Budget / opening hours / travel-time checks
 tests/                  Test queries and evaluation harness
 ```
+
+## Notes & limitations
+
+- Costs are rough per-category estimates in PLN (e.g. museum 20, restaurant 40), not
+  real prices, and are used for every city.
+- The search area is the city's boundary, capped at 10 km from the centre.
+- Upgrading from the Katowice-only version: the old `data/katowice.db` is no longer
+  used; places now live in `data/places.db`.
 
 ## Troubleshooting
 

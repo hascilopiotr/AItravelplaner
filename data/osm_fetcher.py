@@ -1,6 +1,6 @@
 """
-Fetches attractions, restaurants, and leisure spots for Katowice
-from the Overpass API and stores them in SQLite.
+Fetches attractions, restaurants, and leisure spots inside a bounding box
+from the Overpass API.
 """
 
 from __future__ import annotations
@@ -8,7 +8,6 @@ from __future__ import annotations
 import requests
 import json
 import hashlib
-from config import CITY_BBOX
 
 # Public Overpass endpoints, tried in order. The main server frequently
 # returns 502/504 when at capacity, so fall back to mirrors.
@@ -43,8 +42,8 @@ CATEGORY_RULES = [
 ]
 
 
-def _build_query() -> str:
-    lat_min, lon_min, lat_max, lon_max = CITY_BBOX
+def _build_query(bbox: tuple[float, float, float, float]) -> str:
+    lat_min, lon_min, lat_max, lon_max = bbox
     bbox = f"{lat_min},{lon_min},{lat_max},{lon_max}"
 
     tag_filters = ""
@@ -96,8 +95,9 @@ def _post_overpass(query: str) -> list[dict]:
     raise RuntimeError("All Overpass endpoints failed:\n  " + "\n  ".join(errors))
 
 
-def fetch_and_parse() -> list[dict]:
-    query = _build_query()
+def fetch_and_parse(bbox: tuple[float, float, float, float]) -> list[dict]:
+    """bbox = (lat_min, lon_min, lat_max, lon_max)"""
+    query = _build_query(bbox)
     elements = _post_overpass(query)
 
     places = []

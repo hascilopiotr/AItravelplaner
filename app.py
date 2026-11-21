@@ -9,39 +9,92 @@ import pandas as pd
 import pydeck as pdk
 import streamlit as st
 
-from config import ANTHROPIC_API_KEY, CITY, INTERESTS_OPTIONS
-from data.db import count_places, get_place_by_id, init_db
+from config import ANTHROPIC_API_KEY, DEFAULT_CITY, INTERESTS_OPTIONS
+from data.cities import CityNotFound, ensure_city
+from data.db import delete_city, get_place_by_id, init_db, list_cities
 from planner.pipeline import run
 
 DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-KATOWICE_CENTER = (50.2599, 19.0216)
+NEW_CITY = "➕ Add another city…"
 
-st.set_page_config(page_title=f"AI Travel Planner — {CITY}", page_icon="🗺️", layout="wide")
-
-
-# ── Setup checks ────────────────────────────────────────────────────────────
-
-init_db()
-n_places = count_places()
-
-st.title(f"🗺️ AI Travel Planner — {CITY}")
-st.caption("A one-day plan built by Claude from real OpenStreetMap places, then checked "
-           "against your budget, opening hours and travel times.")
+st.set_page_config(page_title="AI Travel Planner", page_icon="🗺️", layout="wide")
 
 if not ANTHROPIC_API_KEY or ANTHROPIC_API_KEY == "your_key_here":
     st.error("No Anthropic API key found. Add `ANTHROPIC_API_KEY=...` to the `.env` file and restart.")
     st.stop()
 
-if n_places == 0:
-    st.warning("The places database is empty.")
-    if st.button("Download places from OpenStreetMap (takes ~30 s)"):
-        from data.osm_fetcher import fetch_and_parse
-        from data.db import upsert_place
-        with st.spinner("Fetching places from Overpass API..."):
-            for place in fetch_and_parse():
-                upsert_place(place)
+init_db()
+
+
+def load_city(name: str, refresh: bool = False) -> bool:
+    """Download (if needed) and select a city. Returns True on success."""
+    verb = "Refreshing" if refresh else "Loading"
+    with st.spinner(f"{verb} places for {name} from OpenStreetMap (~30 s the first time)..."):
+        try:
+            record = ensure_city(name, refresh=refresh)
+        except CityNotFound as e:
+            st.sidebar.error(str(e))
+            return False
+        except Exception as e:  # network / Overpass errors
+            st.sidebar.error(f"Could not download places for {name}: {e}")
+            return False
+    st.session_state["city"] = record["name"]
+    st.session_state.pop("result", None)
+    return True
+
+
+# First launch: make sure the default city is available.
+cities = list_cities()
+if not cities:
+    if not load_city(DEFAULT_CITY):
+        st.stop()
+    cities = list_cities()
+
+by_key = {c["name"]: c for c in cities}
+if st.session_state.get("city") not in by_key:
+    st.session_state["city"] = cities[0]["name"]
+
+
+# ── Sidebar: city ───────────────────────────────────────────────────────────
+
+with st.sidebar:
+    st.header("City")
+    keys = list(by_key)
+    choice = st.selectbox(
+        "City", keys + [NEW_CITY], index=keys.index(st.session_state["city"]),
+        format_func=lambda k: k if k == NEW_CITY else by_key[k]["display_name"].split(",")[0],
+        label_visibility="collapsed",
+    )
+    if choice == NEW_CITY:
+        with st.form("new_city", clear_on_submit=True):
+            new_name = st.text_input("City name", placeholder="e.g. Kraków, Wrocław, Prague")
+            if st.form_submit_button("Download places", use_container_width=True) and new_name.strip():
+                if load_city(new_name.strip()):
+                    st.rerun()
+        st.stop()
+    elif choice != st.session_state["city"]:
+        st.session_state["city"] = choice
+        st.session_state.pop("result", None)
+
+    city = by_key[st.session_state["city"]]
+    st.caption(f"{city['display_name']}  \n{city['n_places']} places · "
+               f"updated {city['fetched_at'][:10]}")
+    c1, c2 = st.columns(2)
+    if c1.button("🔄 Refresh", use_container_width=True, help="Re-download places from OpenStreetMap"):
+        if load_city(city["display_name"].split(",")[0], refresh=True):
+            st.rerun()
+    if c2.button("🗑️ Remove", use_container_width=True, disabled=len(by_key) < 2,
+                 help="Delete this city's places from the local database"):
+        delete_city(city["name"])
+        st.session_state.pop("city", None)
+        st.session_state.pop("result", None)
         st.rerun()
-    st.stop()
+
+city_name = city["display_name"].split(",")[0]
+
+st.title(f"🗺️ AI Travel Planner — {city_name}")
+st.caption("A one-day plan built by Claude from real OpenStreetMap places, then checked "
+           "against your budget, opening hours and travel times.")
 
 
 # ── Sidebar: preferences ────────────────────────────────────────────────────
@@ -57,7 +110,6 @@ with st.sidebar:
         interests = st.multiselect("Interests", INTERESTS_OPTIONS, default=["museums", "food", "parks"])
         notes = st.text_area("Notes (optional)", placeholder="e.g. travelling with kids, vegetarian, no stairs")
         submitted = st.form_submit_button("✨ Generate plan", type="primary", use_container_width=True)
-    st.caption(f"{n_places} places in database")
 
 
 # ── Generate ────────────────────────────────────────────────────────────────
@@ -69,6 +121,7 @@ if submitted:
         st.sidebar.error("Pick at least one interest.")
     else:
         prefs = {
+            "city": city["name"],
             "budget_pln": float(budget),
             "start_time": start_t.strftime("%H:%M"),
             "end_time": end_t.strftime("%H:%M"),
@@ -98,7 +151,7 @@ stops = plan.get("stops", [])
 
 rows = []
 for i, s in enumerate(stops, 1):
-    place = get_place_by_id(s.get("place_id", "")) or {}
+    place = get_place_by_id(prefs["city"], s.get("place_id", "")) or {}
     rows.append({
         "n": i,
         "name": s.get("name", "?"),

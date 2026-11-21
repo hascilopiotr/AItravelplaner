@@ -11,7 +11,7 @@ from datetime import datetime
 from math import radians, cos, sin, asin, sqrt
 
 from validator.opening_hours import is_open
-from config import WALKING_SPEED_KMH, AVG_TRAM_SPEED_KMH
+from config import WALKING_SPEED_KMH, AVG_TRAM_SPEED_KMH, WALK_MAX_KM, TRANSIT_WAIT_MIN
 
 
 @dataclass
@@ -58,9 +58,9 @@ def _haversine_km(lat1, lon1, lat2, lon2) -> float:
 
 
 def _travel_minutes(km: float) -> int:
-    if km < 1.5:
+    if km < WALK_MAX_KM:
         return int((km / WALKING_SPEED_KMH) * 60)
-    return int((km / AVG_TRAM_SPEED_KMH) * 60) + 5  # 5 min waiting
+    return int((km / AVG_TRAM_SPEED_KMH) * 60) + TRANSIT_WAIT_MIN
 
 
 def validate(stops: list[ScheduledStop], budget_pln: float, known_ids: set[str]) -> ValidationResult:
