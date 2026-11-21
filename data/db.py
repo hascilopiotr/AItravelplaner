@@ -23,7 +23,9 @@ def init_db():
             display_name TEXT NOT NULL,
             lat          REAL NOT NULL,
             lon          REAL NOT NULL,
-            fetched_at   TEXT NOT NULL
+            fetched_at   TEXT NOT NULL,
+            bbox         TEXT,             -- JSON [lat_min, lon_min, lat_max, lon_max]
+            currency     TEXT              -- ISO 4217, e.g. 'PLN', 'USD'
         );
         CREATE TABLE IF NOT EXISTS places (
             id          TEXT NOT NULL,
@@ -42,6 +44,11 @@ def init_db():
             PRIMARY KEY (city, id)
         );
     """)
+    city_cols = [r["name"] for r in conn.execute("PRAGMA table_info(cities)")]
+    if "bbox" not in city_cols:
+        conn.execute("ALTER TABLE cities ADD COLUMN bbox TEXT")
+    if "currency" not in city_cols:
+        conn.execute("ALTER TABLE cities ADD COLUMN currency TEXT")
     conn.commit()
     conn.close()
 
@@ -52,15 +59,24 @@ def city_key(name: str) -> str:
 
 # ── Cities ──────────────────────────────────────────────────────────────────
 
-def save_city(key: str, display_name: str, lat: float, lon: float, fetched_at: str):
+def save_city(key: str, display_name: str, lat: float, lon: float, fetched_at: str,
+              bbox: str | None = None, currency: str | None = None):
     conn = get_conn()
     conn.execute("""
-        INSERT INTO cities (name, display_name, lat, lon, fetched_at)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO cities (name, display_name, lat, lon, fetched_at, bbox, currency)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(name) DO UPDATE SET
             display_name=excluded.display_name, lat=excluded.lat,
-            lon=excluded.lon, fetched_at=excluded.fetched_at
-    """, (key, display_name, lat, lon, fetched_at))
+            lon=excluded.lon, fetched_at=excluded.fetched_at, bbox=excluded.bbox,
+            currency=COALESCE(excluded.currency, cities.currency)
+    """, (key, display_name, lat, lon, fetched_at, bbox, currency))
+    conn.commit()
+    conn.close()
+
+
+def set_city_currency(key: str, currency: str):
+    conn = get_conn()
+    conn.execute("UPDATE cities SET currency=? WHERE name=?", (currency, key))
     conn.commit()
     conn.close()
 

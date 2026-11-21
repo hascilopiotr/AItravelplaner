@@ -11,7 +11,7 @@ from rich.panel import Panel
 from rich.json import JSON
 
 from planner.pipeline import run
-from data.cities import ensure_city
+from data.cities import city_currency, ensure_city
 from data.db import count_places
 from config import DEFAULT_CITY, INTERESTS_OPTIONS
 
@@ -29,7 +29,8 @@ def ask_preferences() -> dict:
         record = ensure_city(city)
     console.print(f"{record['display_name']}: [bold]{count_places(record['name'])}[/] places loaded.\n")
 
-    budget = IntPrompt.ask("Your budget (PLN)", default=150)
+    currency = city_currency(record)
+    budget = IntPrompt.ask(f"Your budget ({currency}, per person)", default=150 if currency == "PLN" else 50)
     start_time = Prompt.ask("Start time (HH:MM)", default="10:00")
     end_time = Prompt.ask("End time (HH:MM)", default="19:00")
 
@@ -46,7 +47,8 @@ def ask_preferences() -> dict:
 
     return {
         "city": city,
-        "budget_pln": float(budget),
+        "budget": float(budget),
+        "currency": currency,
         "start_time": start_time,
         "end_time": end_time,
         "interests": interests,
@@ -56,7 +58,7 @@ def ask_preferences() -> dict:
     }
 
 
-def print_result(result: dict):
+def print_result(result: dict, cur: str):
     plan = result["plan"]
     validation = result["validation"]
 
@@ -66,7 +68,7 @@ def print_result(result: dict):
         console.print(
             f"  [bold]{i}.[/] [cyan]{stop['name']}[/]  "
             f"{stop['arrival']} – {stop['departure']}  "
-            f"[yellow]{stop['cost_pln']} PLN[/]"
+            f"[yellow]{stop['cost']:.0f} {cur}[/]"
         )
         console.print(f"     {stop.get('reason', '')}")
 
@@ -77,8 +79,8 @@ def print_result(result: dict):
         console.print("[bold red]✗ Validation found issues:[/]")
         if not validation["budget_ok"]:
             console.print(
-                f"  [red]Budget exceeded:[/] {validation['total_cost']:.0f} PLN "
-                f"> {validation['budget_limit']:.0f} PLN"
+                f"  [red]Budget exceeded:[/] {validation['total_cost']:.0f} {cur} "
+                f"> {validation['budget_limit']:.0f} {cur}"
             )
         for v in validation["hours_violations"]:
             console.print(f"  [red]Opening hours:[/] {v}")
@@ -92,7 +94,7 @@ def main():
     prefs = ask_preferences()
     console.print("\n[dim]Generating plan...[/]")
     result = run(prefs)
-    print_result(result)
+    print_result(result, prefs["currency"])
 
 
 if __name__ == "__main__":

@@ -17,10 +17,10 @@ STOP_SCHEMA = {
         "name": {"type": "string"},
         "arrival": {"type": "string", "description": "HH:MM, 24h"},
         "departure": {"type": "string", "description": "HH:MM, 24h"},
-        "cost_pln": {"type": "number"},
+        "cost": {"type": "number", "description": "per person, in the trip currency"},
         "reason": {"type": "string"},
     },
-    "required": ["place_id", "name", "arrival", "departure", "cost_pln", "reason"],
+    "required": ["place_id", "name", "arrival", "departure", "cost", "reason"],
     "additionalProperties": False,
 }
 
@@ -54,12 +54,14 @@ def _slim(places: list[dict]) -> str:
             "name": p["name"],
             "category": p["category"],
             "subcategory": p["subcategory"],
-            "avg_cost_pln": p["avg_cost_pln"],
+            "usually_free": not p["avg_cost_pln"],
             "duration_min": p["duration_min"],
             "opening_hours": p["opening_hours"],
             "address": p["address"],
             "lat": round(p["lat"], 5),
             "lon": round(p["lon"], 5),
+            "area": p.get("area"),
+            "km_from_centre": p.get("km_from_centre"),
         }
         for p in places
     ]
@@ -68,14 +70,14 @@ def _slim(places: list[dict]) -> str:
 
 def generate_trip(prefs: dict, places: list[dict]) -> dict:
     """prefs needs: city, dates (list of ISO dates), start_time, end_time,
-    budget_pln (whole trip), interests, notes."""
+    budget (whole trip, in `currency`), currency, interests, notes."""
     user_msg = build_user_prompt(prefs, _slim(places))
 
     # Streaming: an 11-day plan is a long response; streaming avoids HTTP timeouts.
     with _client.messages.stream(
         model=MODEL,
         max_tokens=32000,
-        system=build_system_prompt(prefs["city"]),
+        system=build_system_prompt(prefs["city"], prefs["currency"]),
         messages=[{"role": "user", "content": user_msg}],
         # Structured outputs: the API guarantees the reply is JSON matching
         # TRIP_SCHEMA, so the model can't wrap it in prose or markdown.

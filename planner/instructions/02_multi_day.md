@@ -1,8 +1,8 @@
 # Planning several days
 
 - **No repeats:** never use the same place on more than one day of the trip.
-- **One area or theme per day:** e.g. "Old Town & history", "parks & nature",
-  "modern art & food". Cluster each day's stops geographically.
+- **One area and theme per day:** e.g. "Old Town & history", "parks & nature",
+  "modern art & food". Use a different `area` (grid cell) for each day where possible.
 - **Budget across the trip:** the budget is for the whole trip. Spread paid highlights
   across the days instead of spending most of it on day 1; free stops (parks,
   monuments, landmarks) are a good way to keep cheaper days interesting.

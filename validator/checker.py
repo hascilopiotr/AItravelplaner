@@ -11,7 +11,8 @@ from datetime import datetime
 from math import radians, cos, sin, asin, sqrt
 
 from validator.opening_hours import is_open
-from config import WALKING_SPEED_KMH, AVG_TRAM_SPEED_KMH, WALK_MAX_KM, TRANSIT_WAIT_MIN
+from config import (WALKING_SPEED_KMH, AVG_TRAM_SPEED_KMH, WALK_MAX_KM, TRANSIT_WAIT_MIN,
+                    TRAVEL_TOLERANCE_MIN)
 
 
 @dataclass
@@ -20,9 +21,9 @@ class ScheduledStop:
     name: str
     arrival: datetime
     departure: datetime
-    cost_pln: float
-    lat: float
-    lon: float
+    cost: float          # in the trip's currency
+    lat: float | None    # None when the place isn't in the database
+    lon: float | None
     opening_hours: str | None = None
 
 
@@ -63,8 +64,8 @@ def _travel_minutes(km: float) -> int:
     return int((km / AVG_TRAM_SPEED_KMH) * 60) + TRANSIT_WAIT_MIN
 
 
-def validate(stops: list[ScheduledStop], budget_pln: float, known_ids: set[str]) -> ValidationResult:
-    result = ValidationResult(budget_limit=budget_pln)
+def validate(stops: list[ScheduledStop], budget: float, known_ids: set[str]) -> ValidationResult:
+    result = ValidationResult(budget_limit=budget)
 
     # 1. Unknown places
     for stop in stops:
@@ -72,8 +73,8 @@ def validate(stops: list[ScheduledStop], budget_pln: float, known_ids: set[str])
             result.unknown_places.append(stop.name)
 
     # 2. Budget
-    result.total_cost = sum(s.cost_pln for s in stops)
-    if result.total_cost > budget_pln:
+    result.total_cost = sum(s.cost for s in stops)
+    if result.total_cost > budget:
         result.budget_ok = False
 
     # 3. Opening hours
@@ -87,10 +88,13 @@ def validate(stops: list[ScheduledStop], budget_pln: float, known_ids: set[str])
     # 4. Travel time between consecutive stops
     for i in range(len(stops) - 1):
         cur, nxt = stops[i], stops[i + 1]
+        if None in (cur.lat, cur.lon, nxt.lat, nxt.lon):
+            continue  # unknown place: already reported, distance can't be computed
         km = _haversine_km(cur.lat, cur.lon, nxt.lat, nxt.lon)
         needed_min = _travel_minutes(km)
         gap_min = int((nxt.arrival - cur.departure).total_seconds() / 60)
-        if gap_min < needed_min:
+        # Small shortfalls are fine in practice (straight-line distances are rough).
+        if gap_min < needed_min - TRAVEL_TOLERANCE_MIN:
             result.travel_violations.append(
                 f"{cur.name} → {nxt.name}: need {needed_min} min, have {gap_min} min"
             )

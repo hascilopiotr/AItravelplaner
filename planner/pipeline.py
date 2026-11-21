@@ -5,10 +5,11 @@ Orchestrates: fetch places -> call LLM -> validate -> return result.
 from __future__ import annotations
 import json
 from datetime import datetime, date
+from math import cos, radians
 
-from config import DEFAULT_CITY, INTEREST_SUBCATEGORIES
+from config import AREA_GRID_KM, DEFAULT_CITY, INTEREST_SUBCATEGORIES
 
-from data.db import get_all_places, get_place_by_id
+from data.db import city_key, get_all_places, get_city, get_place_by_id
 from planner.llm import generate_trip
 from planner.prompts import DAYS
 from validator.checker import validate, ScheduledStop
@@ -21,7 +22,8 @@ def run_trip(prefs: dict) -> dict:
     prefs = {
         city: "Katowice",                    # optional, defaults to DEFAULT_CITY
         dates: ["2026-11-28", ...],          # ISO dates, 1..MAX_TRIP_DAYS
-        budget_pln: float,                   # total for the whole trip
+        budget: float,                       # total for the whole trip, per person
+        currency: "PLN",                     # optional, defaults to PLN
         start_time: "09:00", end_time: "20:00",   # same every day
         interests: ["museums", "food"],
         notes: "...",
@@ -36,7 +38,8 @@ def run_trip(prefs: dict) -> dict:
     dates = sorted(prefs["dates"])
     if not 1 <= len(dates) <= MAX_TRIP_DAYS:
         raise ValueError(f"A trip must be 1-{MAX_TRIP_DAYS} days long.")
-    prefs = {**prefs, "dates": dates, "city": prefs.get("city") or DEFAULT_CITY}
+    prefs = {**prefs, "dates": dates, "city": prefs.get("city") or DEFAULT_CITY,
+             "currency": prefs.get("currency") or "PLN"}
     city = prefs["city"]
 
     all_places = get_all_places(city)
@@ -47,7 +50,9 @@ def run_trip(prefs: dict) -> dict:
     # Longer trips need more unique places to choose from.
     per_sub = min(40 + 8 * len(dates), 120)
     candidates = select_candidates(all_places, prefs.get("interests", []), per_sub)
+    _tag_areas(candidates, get_city(city_key(city)))
     plan = generate_trip(prefs, candidates)
+    _repair_place_ids(plan, candidates, all_places, known_ids)
 
     by_date = {d.get("date"): d for d in plan.get("days", [])}
     days, missing, seen, repeated = [], [], {}, []
@@ -78,12 +83,13 @@ def run_trip(prefs: dict) -> dict:
         })
 
     total = sum(d["validation"]["total_cost"] for d in days)
-    budget_ok = total <= prefs["budget_pln"]
+    budget_ok = total <= prefs["budget"]
     trip_validation = {
         "ok": budget_ok and not repeated and not missing and all(d["validation"]["ok"] for d in days),
         "budget_ok": budget_ok,
         "total_cost": total,
-        "budget_limit": prefs["budget_pln"],
+        "budget_limit": prefs["budget"],
+        "currency": prefs["currency"],
         "repeated_places": repeated,
         "missing_days": missing,
     }
@@ -93,11 +99,12 @@ def run_trip(prefs: dict) -> dict:
 def run(prefs: dict) -> dict:
     """
     Single-day wrapper (used by the CLI and tests/evaluate.py).
-    prefs = {city?, budget_pln, start_time, end_time, interests,
-             visit_date: "2026-11-22", day_of_week, notes}
+    prefs = {city?, budget_pln (or budget + currency), start_time, end_time,
+             interests, visit_date: "2026-11-22", day_of_week, notes}
     Returns {plan: {plan_summary, stops}, validation: {...}} like before.
     """
-    trip = run_trip({**prefs, "dates": [prefs["visit_date"]]})
+    budget = prefs["budget"] if "budget" in prefs else prefs["budget_pln"]
+    trip = run_trip({**prefs, "dates": [prefs["visit_date"]], "budget": budget})
     day = trip["days"][0]
     tv = trip["trip_validation"]
     validation = {
@@ -114,6 +121,21 @@ def run(prefs: dict) -> dict:
     }
 
 
+def _repair_place_ids(plan: dict, candidates: list[dict], all_places: list[dict], known_ids: set[str]):
+    """The model occasionally mangles a place_id while getting the name right.
+    If an ID is unknown but the name matches a place exactly, use that place's ID
+    (preferring the places the model was shown)."""
+    by_name: dict[str, str] = {}
+    for p in reversed(candidates + all_places):  # candidates win on duplicates
+        by_name[p["name"].strip().lower()] = p["id"]
+    for day in plan.get("days", []):
+        for s in day.get("stops", []):
+            if s.get("place_id") not in known_ids:
+                fixed = by_name.get(str(s.get("name", "")).strip().lower())
+                if fixed:
+                    s["place_id"] = fixed
+
+
 def _window_violations(day_plan: dict, start: str, end: str) -> list[str]:
     """Stops that start before the daily start time or end after the end time."""
     out = []
@@ -123,6 +145,29 @@ def _window_violations(day_plan: dict, start: str, end: str) -> list[str]:
         if s.get("departure", "00:00") > end:
             out.append(f"{s.get('name')} ends at {s['departure']}, after the day ends ({end})")
     return out
+
+
+def _tag_areas(places: list[dict], city: dict | None):
+    """Label each place with a grid cell relative to the city centre ("centre",
+    "1N", "2S 1E", ...) so the AI can keep each day geographically compact."""
+    if not places:
+        return
+    if city:
+        clat, clon = city["lat"], city["lon"]
+    else:
+        clat = sum(p["lat"] for p in places) / len(places)
+        clon = sum(p["lon"] for p in places) / len(places)
+    kx = 111.0 * cos(radians(clat))
+    for p in places:
+        dy, dx = (p["lat"] - clat) * 111.0, (p["lon"] - clon) * kx
+        r, c = round(dy / AREA_GRID_KM), round(dx / AREA_GRID_KM)
+        parts = []
+        if r:
+            parts.append(f"{abs(r)}{'N' if r > 0 else 'S'}")
+        if c:
+            parts.append(f"{abs(c)}{'E' if c > 0 else 'W'}")
+        p["area"] = " ".join(parts) or "centre"
+        p["km_from_centre"] = round((dx * dx + dy * dy) ** 0.5, 1)
 
 
 # Always offer somewhere to eat, whatever the interests.
@@ -185,9 +230,9 @@ def _stops_from_plan(plan: dict, visit_date: str, city: str) -> list[ScheduledSt
             name=s["name"],
             arrival=parse_dt(s["arrival"]),
             departure=parse_dt(s["departure"]),
-            cost_pln=float(s.get("cost_pln", 0)),
-            lat=db_place["lat"] if db_place else 0.0,
-            lon=db_place["lon"] if db_place else 0.0,
+            cost=float(s.get("cost", 0) or 0),
+            lat=db_place["lat"] if db_place else None,
+            lon=db_place["lon"] if db_place else None,
             opening_hours=db_place["opening_hours"] if db_place else None,
         ))
 

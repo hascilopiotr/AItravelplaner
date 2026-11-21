@@ -47,7 +47,8 @@ Your browser opens at http://localhost:8501.
    any city name to download its places (~30 s the first time; cached afterwards).
    **🔄 Refresh** re-downloads the current city, **🗑️ Remove** deletes it locally.
 2. Pick the trip dates (first and last day, up to 11 days), the daily time window,
-   the **total budget for the whole trip**, and interests, then press **Generate plan**.
+   the **total budget for the whole trip** (per person, in the city's currency — e.g.
+   USD for New York, PLN for Kraków), and interests, then press **Generate plan**.
    Claude plans every day in one go (~40 s for 3 days, longer for long trips).
 
 You get:
@@ -99,8 +100,16 @@ tests/                  Test queries and evaluation harness
 
 ## Notes & limitations
 
-- Costs are rough per-category estimates in PLN (e.g. museum 20, restaurant 40), not
-  real prices, and are used for every city.
+- **Prices:** the currency comes from the city's country. Claude estimates each stop's
+  price per person from its knowledge of local prices — treat them as estimates.
+- **City search** is typo-tolerant (Photon, OpenStreetMap-based): "krakw" finds Kraków.
+- **Travel time:** gaps up to 15 minutes shorter than the estimated travel time are
+  not reported (straight-line distances are rough). Tunable in `config.py`
+  (`TRAVEL_TOLERANCE_MIN`, `STOP_BUFFER_MIN`).
+- **Compact days:** each place gets an `area` label (1.5 km grid around the centre) so
+  Claude can keep every day in one neighbourhood.
+- OpenStreetMap sometimes lists one attraction twice under different names; a plan may
+  occasionally include both.
 - The search area is the city's boundary, capped at 10 km from the centre.
 - Upgrading from the Katowice-only version: the old `data/katowice.db` is no longer
   used; places now live in `data/places.db`.

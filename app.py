@@ -8,9 +8,12 @@ from datetime import date, time, timedelta
 import pandas as pd
 import pydeck as pdk
 import streamlit as st
+from babel.numbers import format_currency, get_currency_symbol
 
 from config import ANTHROPIC_API_KEY, DEFAULT_CITY, INTERESTS_OPTIONS
-from data.cities import CityNotFound, ensure_city
+from data.cities import (
+    CityNotFound, city_currency, download_city, ensure_city, refresh_city, search_cities,
+)
 from data.db import delete_city, get_place_by_id, init_db, list_cities
 from planner.pipeline import MAX_TRIP_DAYS, run_trip
 
@@ -26,27 +29,35 @@ if not ANTHROPIC_API_KEY or ANTHROPIC_API_KEY == "your_key_here":
 init_db()
 
 
-def load_city(name: str, refresh: bool = False) -> bool:
-    """Download (if needed) and select a city. Returns True on success."""
-    verb = "Refreshing" if refresh else "Loading"
-    with st.spinner(f"{verb} places for {name} from OpenStreetMap (~30 s the first time)..."):
+def short_name(city: dict) -> str:
+    return city["display_name"].split(" — ")[0].split(",")[0]
+
+
+def _select_loaded(record: dict):
+    st.session_state["city"] = record["name"]
+    st.session_state.pop("result", None)
+    st.session_state.pop("city_matches", None)
+
+
+def run_download(label: str, fn, *args) -> bool:
+    """Run a download/refresh with a spinner; show errors in the sidebar."""
+    with st.spinner(f"Downloading places for {label} from OpenStreetMap (~30 s)..."):
         try:
-            record = ensure_city(name, refresh=refresh)
+            record = fn(*args)
         except CityNotFound as e:
             st.sidebar.error(str(e))
             return False
         except Exception as e:  # network / Overpass errors
-            st.sidebar.error(f"Could not download places for {name}: {e}")
+            st.sidebar.error(f"Could not download places for {label}: {e}")
             return False
-    st.session_state["city"] = record["name"]
-    st.session_state.pop("result", None)
+    _select_loaded(record)
     return True
 
 
 # First launch: make sure the default city is available.
 cities = list_cities()
 if not cities:
-    if not load_city(DEFAULT_CITY):
+    if not run_download(DEFAULT_CITY, ensure_city, DEFAULT_CITY):
         st.stop()
     cities = list_cities()
 
@@ -62,15 +73,40 @@ with st.sidebar:
     keys = list(by_key)
     choice = st.selectbox(
         "City", keys + [NEW_CITY], index=keys.index(st.session_state["city"]),
-        format_func=lambda k: k if k == NEW_CITY else by_key[k]["display_name"].split(",")[0],
+        format_func=lambda k: k if k == NEW_CITY else short_name(by_key[k]),
         label_visibility="collapsed",
     )
     if choice == NEW_CITY:
-        with st.form("new_city", clear_on_submit=True):
-            new_name = st.text_input("City name", placeholder="e.g. Kraków, Wrocław, Prague")
-            if st.form_submit_button("Download places", use_container_width=True) and new_name.strip():
-                if load_city(new_name.strip()):
-                    st.rerun()
+        # Step 1: search (typo tolerant). Step 2: pick the right match and download.
+        with st.form("city_search"):
+            query = st.text_input("Search for a city", placeholder="e.g. Kraków, Wroclaw, Prague")
+            searched = st.form_submit_button("🔍 Search", use_container_width=True)
+        if searched and query.strip():
+            try:
+                st.session_state["city_matches"] = search_cities(query)
+            except Exception as e:
+                st.session_state["city_matches"] = []
+                st.error(f"City search failed: {e}")
+            st.session_state["city_query"] = query.strip()
+
+        matches = st.session_state.get("city_matches")
+        if matches is not None:
+            if not matches:
+                st.warning(f"No city found for '{st.session_state.get('city_query', '')}'. "
+                           "Check the spelling or try the English/local name.")
+            else:
+                idx = st.radio("Did you mean:", range(len(matches)),
+                               format_func=lambda i: matches[i]["label"])
+                picked = matches[idx]
+                cached = by_key.get(picked["name"].strip().lower())
+                if cached:
+                    if st.button(f"Use {picked['name']} (already downloaded)", type="primary",
+                                 use_container_width=True):
+                        _select_loaded(cached)
+                        st.rerun()
+                elif st.button(f"⬇️ Download {picked['name']}", type="primary", use_container_width=True):
+                    if run_download(picked["name"], download_city, picked):
+                        st.rerun()
         st.stop()
     elif choice != st.session_state["city"]:
         st.session_state["city"] = choice
@@ -81,7 +117,7 @@ with st.sidebar:
                f"updated {city['fetched_at'][:10]}")
     c1, c2 = st.columns(2)
     if c1.button("🔄 Refresh", use_container_width=True, help="Re-download places from OpenStreetMap"):
-        if load_city(city["display_name"].split(",")[0], refresh=True):
+        if run_download(short_name(city), refresh_city, city["name"]):
             st.rerun()
     if c2.button("🗑️ Remove", use_container_width=True, disabled=len(by_key) < 2,
                  help="Delete this city's places from the local database"):
@@ -90,10 +126,35 @@ with st.sidebar:
         st.session_state.pop("result", None)
         st.rerun()
 
-city_name = city["display_name"].split(",")[0]
+city_name = short_name(city)
+currency = city_currency(city)
+
+# Rough value of one unit in PLN — only used to suggest a sensible default budget
+# (~200 PLN per day for 3 days). The plan itself is priced directly in `currency`.
+_APPROX_PLN = {"PLN": 1, "EUR": 4.3, "USD": 4.0, "GBP": 5.1, "CHF": 4.5, "CZK": 0.17,
+               "HUF": 0.011, "SEK": 0.37, "NOK": 0.36, "DKK": 0.58, "JPY": 0.026,
+               "CNY": 0.55, "CAD": 2.9, "AUD": 2.6, "TRY": 0.12, "UAH": 0.1, "RON": 0.86}
+
+
+def default_budget(cur: str) -> tuple[float, float]:
+    """(default trip budget, input step) in the given currency."""
+    if cur not in _APPROX_PLN:
+        return 500.0, 10.0
+    value = 600 / _APPROX_PLN[cur]
+    mag = 10 ** max(len(str(int(value))) - 2, 0)
+    return float(round(value / mag) * mag), float(max(mag, 1))
+
+
+def money(x: float, cur: str = None) -> str:
+    """$1,234 / €1,234 / 1,234 PLN (code after the amount when there's no symbol)."""
+    cur = cur or currency
+    if get_currency_symbol(cur, locale="en") == cur:
+        return f"{x:,.0f} {cur}"
+    return format_currency(x, cur, locale="en", format="¤#,##0", currency_digits=False)
+
 
 st.title(f"🗺️ AI Travel Planner — {city_name}")
-st.caption("A one-day plan built by Claude from real OpenStreetMap places, then checked "
+st.caption("A trip plan built by Claude from real OpenStreetMap places, then checked "
            "against your budget, opening hours and travel times.")
 
 
@@ -110,7 +171,9 @@ with st.sidebar:
         c1, c2 = st.columns(2)
         start_t = c1.time_input("Daily start", value=time(10, 0), step=timedelta(minutes=15))
         end_t = c2.time_input("Daily end", value=time(19, 0), step=timedelta(minutes=15))
-        budget = st.slider("Trip budget (PLN, all days)", min_value=0, max_value=5000, value=450, step=50)
+        b_default, b_step = default_budget(currency)
+        budget = st.number_input(f"Trip budget ({currency}, per person, all days)", min_value=0.0,
+                                 value=b_default, step=b_step, format="%.0f")
         interests = st.multiselect("Interests", INTERESTS_OPTIONS, default=["museums", "food", "parks"])
         notes = st.text_area("Notes (optional)", placeholder="e.g. travelling with kids, vegetarian, no stairs")
         submitted = st.form_submit_button("✨ Generate plan", type="primary", use_container_width=True)
@@ -141,7 +204,8 @@ if submitted:
         prefs = {
             "city": city["name"],
             "dates": [d.isoformat() for d in dates],
-            "budget_pln": float(budget),
+            "budget": float(budget),
+            "currency": currency,
             "start_time": start_t.strftime("%H:%M"),
             "end_time": end_t.strftime("%H:%M"),
             "interests": interests,
@@ -177,7 +241,7 @@ def _select_day(iso: str):
     st.session_state["selected_day"] = iso
 
 
-def render_day(day: dict, city_key: str):
+def render_day(day: dict, city_key: str, cur: str):
     plan, v = day["plan"], day["validation"]
     stops = plan.get("stops", [])
     d = date.fromisoformat(day["date"])
@@ -205,7 +269,7 @@ def render_day(day: dict, city_key: str):
             "name": s.get("name", "?"),
             "arrival": s.get("arrival", ""),
             "departure": s.get("departure", ""),
-            "cost_pln": float(s.get("cost_pln", 0) or 0),
+            "cost": float(s.get("cost", 0) or 0),
             "reason": s.get("reason", ""),
             "subcategory": place.get("subcategory", ""),
             "address": place.get("address") or "",
@@ -217,11 +281,11 @@ def render_day(day: dict, city_key: str):
 
     left, right = st.columns([1, 1], gap="large")
     with left:
-        st.markdown(f"#### Itinerary · {len(stops)} stops · {v['total_cost']:.0f} PLN")
+        st.markdown(f"#### Itinerary · {len(stops)} stops · {money(v['total_cost'], cur)}")
         for r in rows:
             with st.container(border=True):
                 st.markdown(f"**{r['n']}. {r['name']}**  \n"
-                            f"🕒 {r['arrival']}–{r['departure']} · 💰 {r['cost_pln']:.0f} PLN"
+                            f"🕒 {r['arrival']}–{r['departure']} · 💰 {money(r['cost'], cur)}"
                             + (f" · _{r['subcategory']}_" if r["subcategory"] else ""))
                 st.caption(r["reason"])
                 st.caption(" · ".join(x for x in (r["address"], f"Hours: {r['opening_hours']}") if x))
@@ -251,6 +315,7 @@ def render_day(day: dict, city_key: str):
 # ── Trip overview ───────────────────────────────────────────────────────────
 
 prefs, tv = st.session_state["prefs"], result["trip_validation"]
+cur = prefs.get("currency", currency)
 days = {d["date"]: d for d in result["days"]}
 first, last = date.fromisoformat(prefs["dates"][0]), date.fromisoformat(prefs["dates"][-1])
 
@@ -262,15 +327,15 @@ n_issue_days = sum(1 for d in days.values() if not d["validation"]["ok"])
 m1, m2, m3, m4 = st.columns(4)
 m1.metric("Days", len(days))
 m2.metric("Stops", sum(len(d["plan"].get("stops", [])) for d in days.values()))
-m3.metric("Total cost", f"{tv['total_cost']:.0f} PLN",
-          delta=f"{tv['budget_limit'] - tv['total_cost']:.0f} PLN left",
+m3.metric("Total cost", money(tv["total_cost"], cur),
+          delta=f"{money(tv['budget_limit'] - tv['total_cost'], cur)} left",
           delta_color="normal" if tv["budget_ok"] else "inverse")
 m4.metric("Validation", "✅ Passed" if tv["ok"] else f"⚠️ Issues on {n_issue_days} day(s)"
           if n_issue_days else "⚠️ Trip issues")
 
 trip_issues = []
 if not tv["budget_ok"]:
-    trip_issues.append(f"💸 Trip budget exceeded: {tv['total_cost']:.0f} PLN > {tv['budget_limit']:.0f} PLN")
+    trip_issues.append(f"💸 Trip budget exceeded: {money(tv['total_cost'], cur)} > {money(tv['budget_limit'], cur)}")
 trip_issues += [f"🔁 Visited twice: {x}" for x in tv["repeated_places"]]
 trip_issues += [f"📭 No plan returned for {x}" for x in tv["missing_days"]]
 if trip_issues:
@@ -304,7 +369,7 @@ while week_start <= last:
                 n_stops = len(day["plan"].get("stops", []))
                 with st.container(border=True):
                     st.markdown(f"**{d.strftime('%d %b')}** {'✅' if v['ok'] else '⚠️'}")
-                    st.caption(f"{n_stops} stops · {v['total_cost']:.0f} PLN")
+                    st.caption(f"{n_stops} stops · {money(v['total_cost'], cur)}")
                     st.button("Viewing" if iso == selected else "Open", key=f"day_{iso}",
                               type="primary" if iso == selected else "secondary",
                               on_click=_select_day, args=(iso,), use_container_width=True)
@@ -316,7 +381,7 @@ while week_start <= last:
     week_start += timedelta(days=7)
 
 st.divider()
-render_day(days.get(selected) or days[prefs["dates"][0]], prefs["city"])
+render_day(days.get(selected) or days[prefs["dates"][0]], prefs["city"], cur)
 
 with st.expander("Raw plan JSON"):
     st.json(result["plan"])
