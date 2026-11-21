@@ -13,3 +13,22 @@ DB_PATH = os.path.join(os.path.dirname(__file__), "data", "katowice.db")
 
 WALKING_SPEED_KMH = 4.5
 AVG_TRAM_SPEED_KMH = 20.0
+
+# Interest options shown in the UI, mapped to place subcategories in the DB.
+INTEREST_SUBCATEGORIES = {
+    "museums": ["museum"],
+    "galleries": ["gallery", "arts"],
+    "monuments": ["monument", "memorial"],
+    "history": ["historic", "monument", "memorial", "museum"],
+    "architecture": ["landmark", "historic"],
+    "parks": ["park", "garden"],
+    "nature": ["park", "garden", "viewpoint"],
+    "cafes": ["cafe"],
+    "restaurants": ["restaurant"],
+    "bars": ["bar"],
+    "food": ["restaurant", "cafe", "fast_food"],
+    "shopping": ["mall"],
+    "theatre": ["theatre", "arts"],
+    "cinema": ["cinema"],
+}
+INTERESTS_OPTIONS = list(INTEREST_SUBCATEGORIES)

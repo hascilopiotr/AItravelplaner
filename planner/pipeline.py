@@ -3,7 +3,10 @@ Orchestrates: fetch places -> call LLM -> validate -> return result.
 """
 
 from __future__ import annotations
+import json
 from datetime import datetime, date
+
+from config import INTEREST_SUBCATEGORIES
 
 from data.db import get_all_places, get_place_by_id
 from planner.llm import generate_plan
@@ -29,7 +32,8 @@ def run(prefs: dict) -> dict:
     all_places = get_all_places()
     known_ids = {p["id"] for p in all_places}
 
-    plan = generate_plan(prefs, all_places)
+    candidates = select_candidates(all_places, prefs.get("interests", []))
+    plan = generate_plan(prefs, candidates)
 
     stops = _stops_from_plan(plan, prefs["visit_date"])
     result: ValidationResult = validate(stops, prefs["budget_pln"], known_ids)
@@ -38,6 +42,50 @@ def run(prefs: dict) -> dict:
         "plan": plan,
         "validation": result.as_dict(),
     }
+
+
+# Always offer somewhere to eat, whatever the interests.
+_ALWAYS_INCLUDE = {"restaurant", "cafe"}
+
+
+def _richness(place: dict) -> int:
+    """Prefer well-documented places: notable ones and those with known hours."""
+    tags = json.loads(place.get("tags") or "{}")
+    score = 0
+    if "wikipedia" in tags or "wikidata" in tags:
+        score += 3
+    if place.get("opening_hours"):
+        score += 2
+    if place.get("description"):
+        score += 1
+    if place.get("address"):
+        score += 1
+    return score
+
+
+def select_candidates(places: list[dict], interests: list[str], per_subcategory: int = 40) -> list[dict]:
+    """
+    Narrow the full DB (~1600 places, ~110k tokens) to the places relevant to the
+    visitor's interests, keeping the richest `per_subcategory` of each kind.
+    Unknown interests fall back to every subcategory.
+    """
+    wanted: set[str] = set()
+    for interest in interests:
+        wanted.update(INTEREST_SUBCATEGORIES.get(interest.strip().lower(), []))
+    if not wanted:
+        wanted = {p["subcategory"] for p in places}
+    wanted |= _ALWAYS_INCLUDE
+
+    by_sub: dict[str, list[dict]] = {}
+    for p in places:
+        if p["subcategory"] in wanted:
+            by_sub.setdefault(p["subcategory"], []).append(p)
+
+    selected = []
+    for group in by_sub.values():
+        group.sort(key=_richness, reverse=True)
+        selected.extend(group[:per_subcategory])
+    return selected
 
 
 def _stops_from_plan(plan: dict, visit_date: str) -> list[ScheduledStop]:

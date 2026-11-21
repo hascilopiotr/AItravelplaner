@@ -26,7 +26,7 @@ def generate_plan(prefs: dict, places: list[dict]) -> dict:
         for p in places
     ]
 
-    places_json = json.dumps(slim_places, ensure_ascii=False, indent=2)
+    places_json = json.dumps(slim_places, ensure_ascii=False, separators=(",", ":"))
     user_msg = build_user_prompt(prefs, places_json)
 
     message = _client.messages.create(

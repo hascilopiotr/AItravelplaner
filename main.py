@@ -12,14 +12,10 @@ from rich.json import JSON
 
 from planner.pipeline import run
 from data.db import init_db, count_places
+from config import INTERESTS_OPTIONS
 
 console = Console()
 
-INTERESTS_OPTIONS = [
-    "museums", "galleries", "monuments", "history",
-    "parks", "nature", "cafes", "restaurants", "bars",
-    "food", "shopping", "theatre", "cinema", "architecture",
-]
 
 DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
